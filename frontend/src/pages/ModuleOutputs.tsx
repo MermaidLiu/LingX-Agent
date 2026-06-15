@@ -80,7 +80,7 @@ function buildPaperOutline(selectedTitle: string, directions: string[], diseaseL
     "- PET-CT 在该路径中的定位与证据缺口",
     "",
     "## 2 材料与方法",
-    `- 数据来源：PMP Agent 专病库 / 病理分级模块沉淀字段`,
+    `- 数据来源：PMP Agent 专病库 / 诊断结果模块沉淀字段`,
     `- 暴露：PET 定量（SUV/MTV/TLG）与影像表型`,
     `- 结局：病理确诊、转归、再入院等（按方向调整）`,
     `- 统计：描述 + 回归 / 生存分析（占位）`,
@@ -102,7 +102,7 @@ export default function ModuleOutputs() {
   const { message } = App.useApp();
   const [mainTab, setMainTab] = useState("agent");
   const [tab, setTab] = useState("flow");
-  const [topic, setTopic] = useState("病理分级与 PET 代谢指标的相关性研究");
+  const [topic, setTopic] = useState("诊断结果与 PET 代谢指标的相关性研究");
   const [agentOut, setAgentOut] = useState<Record<string, string> | null>(null);
   const [agentLoading, setAgentLoading] = useState(false);
   const [report, setReport] = useState("");

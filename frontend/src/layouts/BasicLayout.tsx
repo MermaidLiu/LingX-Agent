@@ -50,7 +50,7 @@ export default function BasicLayout() {
               PMP Agent
             </span>
             <span style={{ color: "rgba(22, 74, 99, 0.72)", fontSize: 13 }}>
-              病理分级智能体 · 病历 → 分级 → 治疗 → 队列 → 知识积累
+              诊断智能体 · 病历 → 诊断 → 治疗 → 队列 → 知识积累
             </span>
           </div>
           <span style={{ color: "rgba(22, 74, 99, 0.55)", fontSize: 12 }}>演示原型 · 院内侧结构化字段</span>

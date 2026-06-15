@@ -31,15 +31,15 @@ const cards: CardDef[] = [
   {
     key: "pathology",
     path: "/pathology",
-    title: "病理分级",
-    subtitle: "第 2 步 · 影像 + 临床综合推断 · 高级别 / 低级别分级 · 分级证据",
+    title: "诊断结果",
+    subtitle: "第 2 步 · 影像 + 临床综合推断 · 高级别 / 低级别 · 诊断依据",
     icon: <MedicineBoxOutlined style={{ fontSize: 28 }} />,
   },
   {
     key: "treatment",
     path: "/treatment",
     title: "治疗推荐",
-    subtitle: "第 3 步 · 基于分级结果 · 个体化治疗方案 · MDT 建议 · 指南参考",
+    subtitle: "第 3 步 · 基于诊断结果 · 个体化治疗方案 · MDT 建议 · 指南参考",
     icon: <SolutionOutlined style={{ fontSize: 28 }} />,
   },
   {
@@ -75,8 +75,8 @@ export default function DashboardHome() {
           PMP Agent 工作台
         </Title>
         <Paragraph style={{ marginBottom: 0, maxWidth: 780, color: "rgba(22, 74, 99, 0.78)" }}>
-          推荐路径：病历输入 → 病理分级 → 治疗推荐 → 随访队列 → 知识积累 → 科研与转化。
-          从 DICOM 与临床诊断出发，完成分级、治疗与队列管理，积累指标相关性后一站式完成科研分析与成果转化。
+          推荐路径：病历输入 → 诊断结果 → 治疗推荐 → 随访队列 → 知识积累 → 科研与转化。
+          从 DICOM 与临床诊断出发，完成诊断判定、治疗与队列管理，积累指标相关性后一站式完成科研分析与成果转化。
         </Paragraph>
       </div>
       <Typography.Paragraph style={{ marginBottom: 20, color: "rgba(22, 74, 99, 0.65)" }}>

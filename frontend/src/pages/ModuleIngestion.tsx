@@ -101,7 +101,7 @@ export default function ModuleIngestion() {
       {cohort && cohort.total > 0 ? (
         <div style={{ marginTop: 24 }}>
           <Divider />
-          <Typography.Title level={5}>队列预分级统计</Typography.Title>
+          <Typography.Title level={5}>队列诊断分布</Typography.Title>
           <Row gutter={16}>
             <Col span={6}>
               <Statistic title="总计" value={cohort.total} />
@@ -113,7 +113,7 @@ export default function ModuleIngestion() {
               <Statistic title="低级别" value={cohort.low_grade_count} valueStyle={{ color: "#3f8600" }} />
             </Col>
             <Col span={6}>
-              <Statistic title="未分级" value={cohort.unknown_count} />
+              <Statistic title="未明确" value={cohort.unknown_count} />
             </Col>
           </Row>
           <Paragraph style={{ marginTop: 12 }}>{cohort.summary}</Paragraph>
@@ -139,7 +139,7 @@ export default function ModuleIngestion() {
       <Paragraph style={{ marginTop: 24 }}>
         下一步 →{" "}
         <Link to="/pathology" className="glass-link">
-          病理分级
+          诊断结果
         </Link>
       </Paragraph>
     </div>

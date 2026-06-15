@@ -33,7 +33,7 @@ export default function ModuleTreatment() {
         治疗推荐
       </Title>
       <Paragraph type="secondary">
-        工作台第 3 步：依据第 2 步病理分级结果，给出个体化治疗建议、MDT 会诊提示及指南参考。
+        工作台第 3 步：依据第 2 步诊断结果，给出个体化治疗建议、MDT 会诊提示及指南参考。
       </Paragraph>
       <Button type="primary" icon={<MedicineBoxOutlined />} loading={loading} onClick={runTreatment}>
         生成治疗推荐

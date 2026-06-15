@@ -196,7 +196,7 @@ class PetCtResearchExtensions(BaseModel):
         default_factory=list,
         description="批量上传文件元数据：filename, kind, ocr_excerpt",
     )
-    pathology_grade: str = Field(default="", description="病理分级：高级别 | 低级别 | 未确定")
+    pathology_grade: str = Field(default="", description="诊断结果：高级别 | 低级别 | 未确定")
     pathology_confidence: float | None = None
     pathology_evidence: list[str] = Field(default_factory=list)
 
@@ -309,7 +309,7 @@ class BatchIngestResultItem(BaseModel):
 
 
 class PathologyGradingDetail(BaseModel):
-    """病理分级推断结果。"""
+    """诊断结果判定详情。"""
 
     grade_label: str = Field(description="高级别 | 低级别 | 未确定")
     grade_system: str = ""
@@ -319,7 +319,7 @@ class PathologyGradingDetail(BaseModel):
 
 
 class TreatmentRecommendation(BaseModel):
-    """基于病理分级的治疗推荐。"""
+    """基于诊断结果的治疗推荐。"""
 
     grade_label: str = ""
     recommendations: list[str] = Field(default_factory=list)
@@ -359,7 +359,7 @@ class ClinicalCorrelationBody(BaseModel):
 
 
 class ClinicalCorrelationResult(BaseModel):
-    """临床指标与病理分级的相关性分析。"""
+    """临床指标与诊断结果的相关性分析。"""
 
     input_indicators: dict[str, str | float] = Field(default_factory=dict)
     correlated_factors: list[dict[str, Any]] = Field(default_factory=list)

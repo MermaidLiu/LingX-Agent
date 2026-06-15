@@ -179,7 +179,7 @@ def module_outputs_review(body: PetCtInterviewRecord) -> dict:
 
 @router.post("/pathology/analyze")
 def module_pathology_analyze(body: PetCtInterviewRecord) -> dict:
-    """病理分级：影像 + 临床 → 诊断推断、分级、治疗推荐与文献。"""
+    """诊断结果：影像 + 临床 → 诊断推断、判定、治疗推荐与文献。"""
     result = analyze_case(body)
     return result.model_dump(mode="json")
 
@@ -226,6 +226,6 @@ def module_pathology_correlation(body: ClinicalCorrelationBody) -> dict:
 
 @router.get("/pathology/literature")
 def module_pathology_literature(grade_label: str = "通用", topic: str = "") -> dict:
-    """按病理分级与主题推荐文献。"""
+    """按诊断结果与主题推荐文献。"""
     refs = recommend_literature(grade_label, topic)
     return {"grade_label": grade_label, "topic": topic, "literature": refs}

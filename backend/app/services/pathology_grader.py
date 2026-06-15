@@ -1,4 +1,4 @@
-"""病理分级智能体：DICOM 队列统计、影像+临床综合诊断、治疗推荐、指标相关性与文献推荐。"""
+"""诊断智能体：DICOM 队列统计、影像+临床综合诊断、治疗推荐、指标相关性与文献推荐。"""
 
 from __future__ import annotations
 
@@ -27,11 +27,11 @@ _LOW_GRADE_PATTERNS = re.compile(
     re.I,
 )
 
-# 已知临床指标与病理分级的相关性知识库（可随病例积累扩展）
+# 已知临床指标与诊断结果的相关性知识库（可随病例积累扩展）
 _INDICATOR_KNOWLEDGE: list[dict[str, Any]] = [
     {
         "indicator": "Ki-67",
-        "correlation": "增殖指数与病理分级正相关",
+        "correlation": "增殖指数与诊断结果（高级别）正相关",
         "strength": "强",
         "direction": "positive",
         "refs": ["WHO Classification of Tumours 5th ed.", "Lancet Oncol 2022; Ki-67 in breast cancer"],
@@ -166,7 +166,7 @@ def _suv_grade_hint(suv_max: float | None) -> str:
 
 
 def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
-    """综合影像 + 临床给出诊断推断、病理分级与治疗推荐。"""
+    """综合影像 + 临床给出诊断推断、诊断结果与治疗推荐。"""
     iv = record.interview_info
     rx = record.research_extensions
     narrative = rx.pet_ct_report_narrative or rx.imaging_report_text or ""
@@ -206,7 +206,7 @@ def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
     diagnosis_summary = (
         f"综合临床诊断「{dx}」"
         + (f"与 PET 报告（SUVmax={rx.global_quant.suv_max}）" if rx.global_quant.suv_max else "")
-        + f"，推断病理分级为「{grade_label}」（置信度 {confidence:.0%}）。"
+        + f"，诊断结果为「{grade_label}」（置信度 {confidence:.0%}）。"
     )
 
     literature = recommend_literature(grade_label, dx)
@@ -309,7 +309,7 @@ def correlate_clinical_indicators(
 
     suggestions = []
     if not matched:
-        suggestions.append("未在知识库中命中已知关联，建议补充更多指标或上传既往病理分级病例以丰富模型。")
+        suggestions.append("未在知识库中命中已知关联，建议补充更多指标或上传既往诊断结果病例以丰富模型。")
     else:
         strong = [m for m in matched if m.get("strength") == "强"]
         if strong:
@@ -321,7 +321,7 @@ def correlate_clinical_indicators(
         correlated_factors=matched,
         literature=literature,
         analysis_suggestions=suggestions,
-        accumulated_cases_note="PMP Agent 已积累病理分级病例与指标映射，随入库量增加，相关性推荐将更加精准。",
+        accumulated_cases_note="PMP Agent 已积累诊断结果与指标映射，随入库量增加，相关性推荐将更加精准。",
     )
 
 

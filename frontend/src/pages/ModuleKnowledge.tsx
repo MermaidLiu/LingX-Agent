@@ -38,7 +38,7 @@ export default function ModuleKnowledge() {
         知识积累
       </Title>
       <Paragraph type="secondary">
-        工作台第 5 步：医生输入临床指标，智能体分析可能与病理分级的相关性，推荐文献；随病例入库持续积累，推荐越来越精准。
+        工作台第 5 步：医生输入临床指标，智能体分析可能与诊断结果的相关性，推荐文献；随病例入库持续积累，推荐越来越精准。
       </Paragraph>
       <Input
         placeholder="病种背景（可选）"

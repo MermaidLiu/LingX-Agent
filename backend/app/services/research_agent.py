@@ -42,7 +42,7 @@ def statistical_analysis(data: str, research_topic: str) -> str:
 
 @tool
 def pathology_grading(data: str) -> str:
-    """对病例进行病理分级推断：综合临床诊断、PET 报告与代谢指标，输出高级别/低级别及证据。"""
+    """对病例输出诊断结果：综合临床诊断、PET 报告与代谢指标，给出高级别/低级别判定及依据。"""
     try:
         payload = json.loads(data) if data.strip().startswith("{") else {}
         record = PetCtInterviewRecord.model_validate(payload)
@@ -51,8 +51,8 @@ def pathology_grading(data: str) -> str:
     result = analyze_case(record)
     g = result.grading
     lines = [
-        f"【病理分级】{g.grade_label}（置信度 {g.confidence:.0%}）",
-        f"分级体系：{g.grade_system}",
+        f"【诊断结果】{g.grade_label}（置信度 {g.confidence:.0%}）",
+        f"判定体系：{g.grade_system}",
         "证据：" + "；".join(g.evidence) if g.evidence else "证据：待补充",
         f"诊断摘要：{result.diagnosis_summary}",
     ]
@@ -63,7 +63,7 @@ def pathology_grading(data: str) -> str:
 
 @tool
 def treatment_recommendations(data: str) -> str:
-    """根据病理分级给出治疗推荐与指南参考。"""
+    """根据诊断结果给出治疗推荐与指南参考。"""
     try:
         payload = json.loads(data) if data.strip().startswith("{") else {}
         record = PetCtInterviewRecord.model_validate(payload)
@@ -79,7 +79,7 @@ def treatment_recommendations(data: str) -> str:
 
 @tool
 def clinical_correlation(indicators_json: str, disease_context: str = "") -> str:
-    """分析医生输入的临床指标与病理分级的可能相关性，并推荐文献。"""
+    """分析医生输入的临床指标与诊断结果的可能相关性，并推荐文献。"""
     try:
         indicators = json.loads(indicators_json) if indicators_json.strip().startswith("{") else {}
     except json.JSONDecodeError:
@@ -100,7 +100,7 @@ def clinical_correlation(indicators_json: str, disease_context: str = "") -> str
 
 @tool
 def literature_research(research_topic: str) -> str:
-    """检索病理分级相关文献；可按高级别/低级别主题推荐指南与综述。"""
+    """检索诊断结果相关文献；可按高级别/低级别主题推荐指南与综述。"""
     grade = "高级别" if "高" in research_topic else "低级别" if "低" in research_topic else "通用"
     refs = recommend_literature(grade, research_topic)
     lines = [f"关于「{research_topic}」的文献推荐（PMP Agent 知识库）："]
@@ -209,8 +209,8 @@ class ResearchAgent:
             [
                 (
                     "system",
-                    "你是 PMP Agent 的病理与 PET-CT 临床科研专家，面向以病为中心的队列与病理分级。"
-                    "请善用工具：病理分级、治疗推荐、临床指标相关性、统计分析、文献综述、"
+                    "你是 PMP Agent 的病理与 PET-CT 临床科研专家，面向以病为中心的队列与诊断结果分析。"
+                    "请善用工具：诊断结果、治疗推荐、临床指标相关性、统计分析、文献综述、"
                     "知识蒸馏、队列挖掘建议、自动选题与论文骨架。"
                     "回答应专业、可执行，并明确下一步数据需求。",
                 ),

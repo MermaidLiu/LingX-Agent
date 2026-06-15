@@ -14,7 +14,7 @@ export default function ModuleCohort() {
         随访队列
       </Typography.Title>
       <Typography.Paragraph type="secondary">
-        工作台第 4 步：按病种、科室、年龄等筛选随访队列；对比多次检查记录，与病理分级及治疗路径衔接。
+        工作台第 4 步：按病种、科室、年龄等筛选随访队列；对比多次检查记录，与诊断结果及治疗路径衔接。
       </Typography.Paragraph>
       <Button
         type="default"

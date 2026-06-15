@@ -17,7 +17,7 @@ export default function ModulePathology() {
     try {
       const res = await analyzePathology(demoRecord);
       setAnalysis(res);
-      message.success("病理分级完成");
+      message.success("诊断结果已生成");
     } catch {
       message.error("分析失败，请确认后端已启动");
     } finally {
@@ -31,13 +31,13 @@ export default function ModulePathology() {
   return (
     <div>
       <Title level={4} className="glass-page-title">
-        病理分级
+        诊断结果
       </Title>
       <Paragraph type="secondary">
-        工作台第 2 步：基于第 1 步录入的 DICOM 与临床诊断，综合影像报告与病史推断病理分级（高级别 / 低级别），输出分级证据与建议补充标志物。
+        工作台第 2 步：基于第 1 步录入的 DICOM 与临床诊断，综合影像报告与病史输出诊断结果（高级别 / 低级别），并给出诊断依据与建议补充标志物。
       </Paragraph>
       <Button type="primary" icon={<ExperimentOutlined />} loading={loading} onClick={runAnalyze}>
-        运行病理分级
+        生成诊断结果
       </Button>
       {analysis ? (
         <div style={{ marginTop: 24 }}>
@@ -52,7 +52,7 @@ export default function ModulePathology() {
           </Card>
           <Row gutter={16}>
             <Col span={24}>
-              <Card title="分级证据" size="small">
+              <Card title="诊断依据" size="small">
                 <ul style={{ paddingLeft: 20, margin: 0 }}>
                   {analysis.grading.evidence.map((e, i) => (
                     <li key={i}>{e}</li>
