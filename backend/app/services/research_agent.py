@@ -51,7 +51,9 @@ def pathology_grading(data: str) -> str:
     result = analyze_case(record)
     g = result.grading
     lines = [
-        f"【诊断结果】{g.grade_label}（置信度 {g.confidence:.0%}）",
+        f"【诊断结果】病理分级 {g.grade_label}（WHO {g.who_grade}）",
+        f"综合评分：{g.composite_score} 分（{g.score_level}）",
+        f"评分明细：{g.score_breakdown}",
         f"判定体系：{g.grade_system}",
         "证据：" + "；".join(g.evidence) if g.evidence else "证据：待补充",
         f"诊断摘要：{result.diagnosis_summary}",

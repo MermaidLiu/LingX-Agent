@@ -309,11 +309,20 @@ class BatchIngestResultItem(BaseModel):
 
 
 class PathologyGradingDetail(BaseModel):
-    """诊断结果判定详情。"""
+    """诊断结果判定详情（含病理分级与评分）。"""
 
-    grade_label: str = Field(description="高级别 | 低级别 | 未确定")
+    grade_label: str = Field(description="病理分级：高级别 | 低级别 | 未确定")
+    pathology_grade: str = Field(default="", description="病理分级展示名，与 grade_label 一致")
     grade_system: str = ""
+    who_grade: str = Field(default="", description="WHO 分级，如 G1 / G2 / G3")
+    composite_score: float = Field(default=0.0, description="综合评分 0–100，越高倾向高级别")
+    score_level: str = Field(default="", description="评分档位：低危 / 中危 / 高危")
     confidence: float = 0.0
+    score_breakdown: dict[str, float] = Field(
+        default_factory=dict,
+        description="评分明细：形态学、增殖活性、影像代谢等",
+    )
+    score_interpretation: str = ""
     evidence: list[str] = Field(default_factory=list)
     biomarkers_suggested: list[str] = Field(default_factory=list)
 

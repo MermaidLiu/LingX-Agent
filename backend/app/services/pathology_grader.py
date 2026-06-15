@@ -165,6 +165,54 @@ def _suv_grade_hint(suv_max: float | None) -> str:
     return f"SUVmax={suv_max} 代谢中等，需结合病理形态学"
 
 
+def _who_grade_for(label: str) -> str:
+    return {"高级别": "G3", "低级别": "G1", "未确定": "G2"}.get(label, "Gx")
+
+
+def _score_level_for(score: float) -> str:
+    if score >= 70:
+        return "高危"
+    if score >= 40:
+        return "中危"
+    return "低危"
+
+
+def _compute_composite_score(
+    grade_label: str,
+    confidence: float,
+    suv_max: float | None,
+) -> tuple[float, dict[str, float], str]:
+    """返回 (composite_score, breakdown, interpretation)."""
+    base = {"高级别": 82.0, "低级别": 28.0, "未确定": 52.0}.get(grade_label, 50.0)
+    conf_adj = (confidence - 0.5) * 12
+    suv_score = 50.0
+    if suv_max is not None:
+        if suv_max >= 5.0:
+            suv_score = min(95.0, 55 + suv_max * 5)
+        elif suv_max < 2.5:
+            suv_score = max(10.0, suv_max * 12)
+        else:
+            suv_score = 40 + suv_max * 4
+
+    morphology = base
+    proliferation = base * 0.85 + conf_adj
+    imaging = suv_score
+    composite = round(min(98.0, max(5.0, morphology * 0.45 + proliferation * 0.25 + imaging * 0.30)), 1)
+
+    breakdown = {
+        "形态学分级": round(morphology, 1),
+        "增殖活性": round(proliferation, 1),
+        "影像代谢": round(imaging, 1),
+    }
+    level = _score_level_for(composite)
+    interp = (
+        f"综合评分 {composite} 分（{level}），病理分级为「{grade_label}」"
+        f"（WHO {_who_grade_for(grade_label)}）。"
+        f"评分越高表示恶性潜能与增殖活性越强，需结合病理切片与免疫组化最终确认。"
+    )
+    return composite, breakdown, interp
+
+
 def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
     """综合影像 + 临床给出诊断推断、诊断结果与治疗推荐。"""
     iv = record.interview_info
@@ -187,10 +235,20 @@ def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
             elif rx.global_quant.suv_max < 2.5:
                 grade_label, confidence = "低级别", 0.58
 
+    composite, breakdown, score_interp = _compute_composite_score(
+        grade_label, confidence, rx.global_quant.suv_max
+    )
+
     grading = PathologyGradingDetail(
         grade_label=grade_label,
-        grade_system="WHO / 器官特异性分级（演示）",
+        pathology_grade=grade_label,
+        grade_system="WHO / 器官特异性病理分级（演示）",
+        who_grade=_who_grade_for(grade_label),
+        composite_score=composite,
+        score_level=_score_level_for(composite),
         confidence=round(confidence, 2),
+        score_breakdown=breakdown,
+        score_interpretation=score_interp,
         evidence=evidence,
         biomarkers_suggested=["Ki-67", "P53", "HER2", "ER/PR"] if grade_label == "未确定" else [],
     )
@@ -204,9 +262,10 @@ def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
     )
 
     diagnosis_summary = (
-        f"综合临床诊断「{dx}」"
-        + (f"与 PET 报告（SUVmax={rx.global_quant.suv_max}）" if rx.global_quant.suv_max else "")
-        + f"，诊断结果为「{grade_label}」（置信度 {confidence:.0%}）。"
+        f"临床诊断「{dx}」"
+        + (f"，PET SUVmax={rx.global_quant.suv_max}" if rx.global_quant.suv_max else "")
+        + f"。病理分级：{grade_label}（WHO {_who_grade_for(grade_label)}），"
+        f"综合评分 {composite} 分（{_score_level_for(composite)}），置信度 {confidence:.0%}。"
     )
 
     literature = recommend_literature(grade_label, dx)

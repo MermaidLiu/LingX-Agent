@@ -32,7 +32,7 @@ const cards: CardDef[] = [
     key: "pathology",
     path: "/pathology",
     title: "诊断结果",
-    subtitle: "第 2 步 · 影像 + 临床综合推断 · 高级别 / 低级别 · 诊断依据",
+    subtitle: "第 2 步 · 临床诊断 · 病理分级 · WHO 分级 · 综合评分 0–100",
     icon: <MedicineBoxOutlined style={{ fontSize: 28 }} />,
   },
   {

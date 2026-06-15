@@ -1,5 +1,5 @@
 import { ExperimentOutlined } from "@ant-design/icons";
-import { App, Button, Card, Col, Row, Tag, Typography } from "antd";
+import { App, Button, Card, Col, Descriptions, Progress, Row, Statistic, Tag, Typography } from "antd";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { analyzePathology, type PathologyAnalysisResult } from "../api/client";
@@ -25,8 +25,11 @@ export default function ModulePathology() {
     }
   }
 
-  const gradeColor = (g: string) =>
-    g === "高级别" ? "red" : g === "低级别" ? "green" : "default";
+  const g = analysis?.grading;
+  const gradeColor = (label: string) =>
+    label === "高级别" ? "red" : label === "低级别" ? "green" : "default";
+  const scoreColor = (level: string) =>
+    level === "高危" ? "#cf1322" : level === "中危" ? "#d48806" : "#3f8600";
 
   return (
     <div>
@@ -34,38 +37,94 @@ export default function ModulePathology() {
         诊断结果
       </Title>
       <Paragraph type="secondary">
-        工作台第 2 步：基于第 1 步录入的 DICOM 与临床诊断，综合影像报告与病史输出诊断结果（高级别 / 低级别），并给出诊断依据与建议补充标志物。
+        工作台第 2 步：综合 DICOM、临床诊断与影像报告，输出临床诊断推断、病理分级（高级别 / 低级别）、
+        WHO 分级、综合评分（0–100）及评分明细。
       </Paragraph>
       <Button type="primary" icon={<ExperimentOutlined />} loading={loading} onClick={runAnalyze}>
         生成诊断结果
       </Button>
-      {analysis ? (
+      {analysis && g ? (
         <div style={{ marginTop: 24 }}>
-          <Card title="诊断推断" size="small" style={{ marginBottom: 16 }}>
-            <Paragraph>{analysis.diagnosis_summary}</Paragraph>
-            <Tag color={gradeColor(analysis.grading.grade_label)}>
-              {analysis.grading.grade_label} · 置信度 {(analysis.grading.confidence * 100).toFixed(0)}%
-            </Tag>
-            <Text type="secondary" style={{ marginLeft: 12 }}>
-              {analysis.grading.grade_system}
-            </Text>
+          <Card title="临床诊断" size="small" style={{ marginBottom: 16 }}>
+            <Paragraph style={{ marginBottom: 8 }}>
+              <Text strong>推断诊断：</Text>
+              {analysis.inferred_diagnosis}
+            </Paragraph>
+            <Paragraph style={{ marginBottom: 0 }}>{analysis.diagnosis_summary}</Paragraph>
           </Card>
-          <Row gutter={16}>
-            <Col span={24}>
-              <Card title="诊断依据" size="small">
-                <ul style={{ paddingLeft: 20, margin: 0 }}>
-                  {analysis.grading.evidence.map((e, i) => (
-                    <li key={i}>{e}</li>
-                  ))}
-                </ul>
-                {analysis.grading.biomarkers_suggested.length > 0 ? (
-                  <Paragraph style={{ marginTop: 12 }}>
-                    建议补充标志物：{analysis.grading.biomarkers_suggested.join("、")}
-                  </Paragraph>
-                ) : null}
+
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            <Col xs={24} md={8}>
+              <Card title="病理分级" size="small">
+                <Tag color={gradeColor(g.pathology_grade || g.grade_label)} style={{ fontSize: 14, padding: "4px 12px" }}>
+                  {g.pathology_grade || g.grade_label}
+                </Tag>
+                <div style={{ marginTop: 12 }}>
+                  <Text type="secondary">WHO 分级：</Text>
+                  <Text strong> {g.who_grade || "—"}</Text>
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <Text type="secondary">分级体系：</Text>
+                  <Text> {g.grade_system}</Text>
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <Text type="secondary">置信度：</Text>
+                  <Text> {(g.confidence * 100).toFixed(0)}%</Text>
+                </div>
+              </Card>
+            </Col>
+            <Col xs={24} md={8}>
+              <Card title="综合评分" size="small">
+                <Statistic
+                  value={g.composite_score ?? 0}
+                  suffix="/ 100"
+                  valueStyle={{ color: scoreColor(g.score_level), fontSize: 36 }}
+                />
+                <Tag color={gradeColor(g.score_level === "高危" ? "高级别" : g.score_level === "低危" ? "低级别" : "未确定")}>
+                  {g.score_level || "—"}
+                </Tag>
+                <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0, fontSize: 12 }}>
+                  {g.score_interpretation}
+                </Paragraph>
+              </Card>
+            </Col>
+            <Col xs={24} md={8}>
+              <Card title="评分明细" size="small">
+                {Object.entries(g.score_breakdown || {}).map(([k, v]) => (
+                  <div key={k} style={{ marginBottom: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <Text>{k}</Text>
+                      <Text strong>{v}</Text>
+                    </div>
+                    <Progress percent={v} showInfo={false} strokeColor={scoreColor(g.score_level)} size="small" />
+                  </div>
+                ))}
               </Card>
             </Col>
           </Row>
+
+          <Card title="诊断依据" size="small" style={{ marginBottom: 16 }}>
+            <ul style={{ paddingLeft: 20, margin: 0 }}>
+              {g.evidence.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ul>
+            {g.biomarkers_suggested.length > 0 ? (
+              <Paragraph style={{ marginTop: 12, marginBottom: 0 }}>
+                建议补充标志物：{g.biomarkers_suggested.join("、")}
+              </Paragraph>
+            ) : null}
+          </Card>
+
+          {analysis.multimodal_notes.length > 0 ? (
+            <Descriptions bordered size="small" column={2} title="多模态摘要">
+              {analysis.multimodal_notes.map((n, i) => (
+                <Descriptions.Item key={i} label={`项 ${i + 1}`}>
+                  {n}
+                </Descriptions.Item>
+              ))}
+            </Descriptions>
+          ) : null}
         </div>
       ) : null}
       <Paragraph style={{ marginTop: 24 }}>

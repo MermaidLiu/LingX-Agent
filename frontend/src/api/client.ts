@@ -172,8 +172,14 @@ export async function outputCaseReview(record: PetCtInterviewRecord) {
 
 export type PathologyGradingDetail = {
   grade_label: string;
+  pathology_grade: string;
   grade_system: string;
+  who_grade: string;
+  composite_score: number;
+  score_level: string;
   confidence: number;
+  score_breakdown: Record<string, number>;
+  score_interpretation: string;
   evidence: string[];
   biomarkers_suggested: string[];
 };
