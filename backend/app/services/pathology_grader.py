@@ -177,37 +177,52 @@ def _score_level_for(score: float) -> str:
     return "低危"
 
 
+def _has_pet_data(record: PetCtInterviewRecord) -> bool:
+    rx = record.research_extensions
+    return (
+        rx.global_quant.suv_max is not None
+        or bool(rx.pet_ct_report_narrative.strip())
+        or bool(rx.imaging_report_text.strip())
+    )
+
+
 def _compute_composite_score(
     grade_label: str,
     confidence: float,
     suv_max: float | None,
+    has_pet: bool,
 ) -> tuple[float, dict[str, float], str]:
     """返回 (composite_score, breakdown, interpretation)."""
     base = {"高级别": 82.0, "低级别": 28.0, "未确定": 52.0}.get(grade_label, 50.0)
     conf_adj = (confidence - 0.5) * 12
-    suv_score = 50.0
-    if suv_max is not None:
+
+    morphology = base
+    proliferation = base * 0.85 + conf_adj
+    breakdown: dict[str, float] = {
+        "形态学分级": round(morphology, 1),
+        "增殖活性": round(proliferation, 1),
+    }
+
+    if has_pet and suv_max is not None:
         if suv_max >= 5.0:
             suv_score = min(95.0, 55 + suv_max * 5)
         elif suv_max < 2.5:
             suv_score = max(10.0, suv_max * 12)
         else:
             suv_score = 40 + suv_max * 4
+        breakdown["影像代谢"] = round(suv_score, 1)
+        composite = round(
+            min(98.0, max(5.0, morphology * 0.45 + proliferation * 0.25 + suv_score * 0.30)),
+            1,
+        )
+    else:
+        composite = round(min(98.0, max(5.0, morphology * 0.6 + proliferation * 0.4)), 1)
 
-    morphology = base
-    proliferation = base * 0.85 + conf_adj
-    imaging = suv_score
-    composite = round(min(98.0, max(5.0, morphology * 0.45 + proliferation * 0.25 + imaging * 0.30)), 1)
-
-    breakdown = {
-        "形态学分级": round(morphology, 1),
-        "增殖活性": round(proliferation, 1),
-        "影像代谢": round(imaging, 1),
-    }
     level = _score_level_for(composite)
+    pet_note = f"，影像代谢评分 {breakdown['影像代谢']}" if "影像代谢" in breakdown else "（未含 PET/代谢影像，仅基于临床与病理线索）"
     interp = (
         f"综合评分 {composite} 分（{level}），病理分级为「{grade_label}」"
-        f"（WHO {_who_grade_for(grade_label)}）。"
+        f"（WHO {_who_grade_for(grade_label)}）{pet_note}。"
         f"评分越高表示恶性潜能与增殖活性越强，需结合病理切片与免疫组化最终确认。"
     )
     return composite, breakdown, interp
@@ -226,7 +241,7 @@ def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
         iv.brief_medical_history,
     )
 
-    suv_hint = _suv_grade_hint(rx.global_quant.suv_max)
+    suv_hint = _suv_grade_hint(rx.global_quant.suv_max) if _has_pet_data(record) else ""
     if suv_hint:
         evidence.append(suv_hint)
         if grade_label == "未确定" and rx.global_quant.suv_max is not None:
@@ -235,8 +250,9 @@ def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
             elif rx.global_quant.suv_max < 2.5:
                 grade_label, confidence = "低级别", 0.58
 
+    has_pet = _has_pet_data(record)
     composite, breakdown, score_interp = _compute_composite_score(
-        grade_label, confidence, rx.global_quant.suv_max
+        grade_label, confidence, rx.global_quant.suv_max if has_pet else None, has_pet
     )
 
     grading = PathologyGradingDetail(
@@ -261,10 +277,13 @@ def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
         mdt_recommended=grade_label in ("高级别", "未确定"),
     )
 
+    pet_clause = ""
+    if has_pet and rx.global_quant.suv_max is not None:
+        pet_clause = f"，PET SUVmax={rx.global_quant.suv_max}"
+
     diagnosis_summary = (
-        f"临床诊断「{dx}」"
-        + (f"，PET SUVmax={rx.global_quant.suv_max}" if rx.global_quant.suv_max else "")
-        + f"。病理分级：{grade_label}（WHO {_who_grade_for(grade_label)}），"
+        f"临床诊断「{dx}」{pet_clause}。"
+        f"病理分级：{grade_label}（WHO {_who_grade_for(grade_label)}），"
         f"综合评分 {composite} 分（{_score_level_for(composite)}），置信度 {confidence:.0%}。"
     )
 
@@ -278,9 +297,10 @@ def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
         literature=literature,
         multimodal_notes=[
             f"科室: {record.patient_base_info.department}",
-            f"病种编码: {rx.primary_disease_code or '—'}",
-            f"代谢表型: {', '.join(rx.pet_ct_phenotype_tags) or '—'}",
-            f"病灶数: {len(rx.lesions)}",
+            f"病种: {rx.primary_disease_name or dx}",
+            *( [f"代谢表型: {', '.join(rx.pet_ct_phenotype_tags)}"] if rx.pet_ct_phenotype_tags else [] ),
+            *( [f"病灶数: {len(rx.lesions)}"] if rx.lesions else [] ),
+            *( ["含 PET/代谢影像数据"] if has_pet else ["仅临床+DICOM，未检出 PET 代谢指标"] ),
         ],
     )
 

@@ -3,8 +3,9 @@ import { App, Alert, Button, Col, Divider, Input, Row, Spin, Statistic, Switch, 
 import axios from "axios";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import type { BatchIngestItem, PathologyBatchCohortResult } from "../api/client";
+import type { BatchIngestItem, PathologyBatchCohortResult, PetCtInterviewRecord } from "../api/client";
 import { batchIngest, pathologyBatchCohort } from "../api/client";
+import { mergeIngestedCase, saveClinicalDiagnosis } from "../lib/workflowCase";
 
 const { Paragraph, Text } = Typography;
 
@@ -13,7 +14,7 @@ export default function ModuleIngestion() {
   const [persist, setPersist] = useState(false);
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<BatchIngestItem[]>([]);
-  const [clinicalDiagnosis, setClinicalDiagnosis] = useState("发热待查 · 待病理进一步明确");
+  const [clinicalDiagnosis, setClinicalDiagnosis] = useState("卵巢肿物，待病理学分级明确");
   const [cohort, setCohort] = useState<PathologyBatchCohortResult | null>(null);
 
   return (
@@ -39,7 +40,10 @@ export default function ModuleIngestion() {
       <Input.TextArea
         rows={2}
         value={clinicalDiagnosis}
-        onChange={(e) => setClinicalDiagnosis(e.target.value)}
+        onChange={(e) => {
+          setClinicalDiagnosis(e.target.value);
+          saveClinicalDiagnosis(e.target.value);
+        }}
         placeholder="输入临床诊断，如：卵巢高级别浆液性癌待排、肺腺癌等"
         style={{ maxWidth: 640, marginBottom: 16 }}
       />
@@ -66,6 +70,12 @@ export default function ModuleIngestion() {
                 pathologyBatchCohort(files).catch(() => null),
               ]);
               setRows(data);
+              const okParsed = data.find((r) => r.ok && r.parsed);
+              if (okParsed?.parsed) {
+                mergeIngestedCase(okParsed.parsed, clinicalDiagnosis);
+              } else {
+                saveClinicalDiagnosis(clinicalDiagnosis);
+              }
               if (cohortRes && cohortRes.total > 0) setCohort(cohortRes);
               const failed = data.filter((r) => !r.ok).length;
               if (failed) {

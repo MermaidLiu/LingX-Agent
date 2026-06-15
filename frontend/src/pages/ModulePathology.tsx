@@ -3,7 +3,7 @@ import { App, Button, Card, Col, Descriptions, Progress, Row, Statistic, Tag, Ty
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { analyzePathology, type PathologyAnalysisResult } from "../api/client";
-import { demoRecord } from "../data/demoRecord";
+import { getWorkflowCase } from "../lib/workflowCase";
 
 const { Paragraph, Title, Text } = Typography;
 
@@ -15,7 +15,7 @@ export default function ModulePathology() {
   async function runAnalyze() {
     setLoading(true);
     try {
-      const res = await analyzePathology(demoRecord);
+      const res = await analyzePathology(getWorkflowCase());
       setAnalysis(res);
       message.success("诊断结果已生成");
     } catch {
@@ -37,8 +37,8 @@ export default function ModulePathology() {
         诊断结果
       </Title>
       <Paragraph type="secondary">
-        工作台第 2 步：综合 DICOM、临床诊断与影像报告，输出临床诊断推断、病理分级（高级别 / 低级别）、
-        WHO 分级、综合评分（0–100）及评分明细。
+        工作台第 2 步：读取第 1 步录入的临床诊断与 DICOM 数据，输出病理分级、WHO 分级与综合评分。
+        若未上传含 PET 的 DICOM，则不会显示 SUV 等代谢指标。
       </Paragraph>
       <Button type="primary" icon={<ExperimentOutlined />} loading={loading} onClick={runAnalyze}>
         生成诊断结果
