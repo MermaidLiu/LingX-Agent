@@ -1,0 +1,21 @@
+# 复制到 /etc/systemd/system/lingxi-backend.service
+# 修改 User、WorkingDirectory、ExecStart 中的路径后执行：
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now lingxi-backend
+
+[Unit]
+Description=PMP Agent backend (uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/DeepAgent/backend
+EnvironmentFile=/opt/DeepAgent/backend/.env
+ExecStart=/opt/DeepAgent/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

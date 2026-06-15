@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.db
+node_modules/
+dist/
+.DS_Store
+models/*.pth
+data/
+*.log
+.cursor/
+agent-transcripts/
