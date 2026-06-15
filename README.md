@@ -28,8 +28,8 @@ PMPAgent/
 ## 快速开始（一键启动）
 
 ```bash
-git clone https://github.com/MermaidLiu/PMPAgent.git
-cd PMPAgent
+git clone https://github.com/MermaidLiu/LingX-Agent.git
+cd LingX-Agent
 chmod +x start.sh
 ./start.sh
 ```
