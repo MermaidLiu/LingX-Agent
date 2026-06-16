@@ -38,7 +38,7 @@ export default function ModulePathology() {
       </Title>
       <Paragraph type="secondary">
         工作台第 2 步：读取第 1 步录入的临床诊断与 DICOM 数据，输出病理分级、WHO 分级与综合评分。
-        若未上传含 PET 的 DICOM，则不会显示 SUV 等代谢指标。
+        若未上传影像（DICOM），则不会显示 SUV 等代谢指标，仅基于临床诊断分析。
       </Paragraph>
       <Button type="primary" icon={<ExperimentOutlined />} loading={loading} onClick={runAnalyze}>
         生成诊断结果

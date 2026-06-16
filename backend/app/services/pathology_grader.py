@@ -219,7 +219,7 @@ def _compute_composite_score(
         composite = round(min(98.0, max(5.0, morphology * 0.6 + proliferation * 0.4)), 1)
 
     level = _score_level_for(composite)
-    pet_note = f"，影像代谢评分 {breakdown['影像代谢']}" if "影像代谢" in breakdown else "（未含 PET/代谢影像，仅基于临床与病理线索）"
+    pet_note = f"，影像代谢评分 {breakdown['影像代谢']}" if "影像代谢" in breakdown else "（未上传影像，仅基于临床与病理线索）"
     interp = (
         f"综合评分 {composite} 分（{level}），病理分级为「{grade_label}」"
         f"（WHO {_who_grade_for(grade_label)}）{pet_note}。"
@@ -315,7 +315,7 @@ def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
             f"病种: {rx.primary_disease_name or dx}",
             *( [f"代谢表型: {', '.join(rx.pet_ct_phenotype_tags)}"] if rx.pet_ct_phenotype_tags else [] ),
             *( [f"病灶数: {len(rx.lesions)}"] if rx.lesions else [] ),
-            *( ["含 PET/代谢影像数据"] if has_pet else ["仅临床+DICOM，未检出 PET 代谢指标"] ),
+            *( ["已上传影像数据"] if has_pet else ["未上传影像，仅基于临床诊断"] ),
         ],
     )
 

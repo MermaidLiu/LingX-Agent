@@ -1,4 +1,4 @@
-import { App, Button, Descriptions, Space, Table, Tag, Typography } from "antd";
+import { App, Alert, Button, Collapse, Descriptions, Space, Table, Tag, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import {
   exportTrainingData,
@@ -74,9 +74,68 @@ export default function IngestionTrainingPanel() {
 
   return (
     <div>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="病理分级 vs 影像诊断：如何准备训练数据？"
+        description={
+          <div>
+            <Paragraph style={{ marginBottom: 8 }}>
+              当前模型训练目标是 <Text strong>病理分级（高级别 / 低级别）</Text>，标签来自入库病例的临床诊断文本、
+              病理报告关键词，或 JSON 中的 <Text code>research_extensions.pathology_grade</Text> 字段。
+            </Paragraph>
+            <Paragraph style={{ marginBottom: 0 }}>
+              <Text strong>推荐流程：</Text>
+              ①「数据上传」批量导入 DICOM/JSON 并开启入库 → ② 高级别 / 低级别各约 80 例（共 ~160 例）→
+              ③ 本页「导出训练数据」→ ④「开始训练」→ ⑤ 在「诊断结果」验证。
+              若未上传影像，模型仅使用临床字段（年龄、性别等）；上传 DICOM 后可额外使用 SUV/MTV 等影像特征。
+            </Paragraph>
+          </div>
+        }
+      />
+
+      <Collapse
+        style={{ marginBottom: 16 }}
+        items={[
+          {
+            key: "labels",
+            label: "如何标注病理分级（训练标签）",
+            children: (
+              <ul style={{ paddingLeft: 20, margin: 0 }}>
+                <li>
+                  <Text strong>方式 A · 临床诊断文本</Text>：上传时在诊断框填写含分级信息的描述，如「卵巢
+                  <Text mark>高级别</Text>浆液性癌」「<Text mark>低级别</Text>浆液性癌」「G1 内膜样癌」
+                </li>
+                <li>
+                  <Text strong>方式 B · 结构化 JSON</Text>：在病例 JSON 中设置{" "}
+                  <Text code>research_extensions.pathology_grade</Text> 为 <Text code>高级别</Text> 或{" "}
+                  <Text code>低级别</Text>
+                </li>
+                <li>
+                  <Text strong>方式 C · 影像 + 病理对照</Text>：上传含代谢/病灶信息的 DICOM 或报告，系统从
+                  SUV、病灶描述辅助推断标签（建议最终以病理切片为准）
+                </li>
+              </ul>
+            ),
+          },
+          {
+            key: "imaging",
+            label: "影像诊断训练说明",
+            children: (
+              <Paragraph style={{ marginBottom: 0 }}>
+                本平台「影像诊断」指：上传 DICOM 后提取检查号、模态、SUV/MTV/TLG 等特征，与临床信息一起参与分级预测。
+                若要做<strong>纯影像分类</strong>（如 CT 良恶性），需为每例 DICOM 提供明确诊断标签（JSON 或诊断文本），
+                并保证「解析后直接入库」。当前默认使用 RandomForest 融合临床 + 影像数值特征；深度影像模型（CNN）
+                可在后续接入 <Text code>ml/</Text> 目录扩展。
+              </Paragraph>
+            ),
+          },
+        ]}
+      />
+
       <Paragraph type="secondary">
-        从已入库病例导出特征与标签（高级别 / 低级别），训练 RandomForest 分类模型。
-        训练完成后，第 2 步「诊断结果」将优先使用模型预测。建议各等级约 80 例样本。
+        从已入库病例导出特征与标签，训练 RandomForest 分类模型。训练完成后，第 2 步「诊断结果」将优先使用模型预测。
       </Paragraph>
 
       <Descriptions bordered size="small" column={2} style={{ marginBottom: 16 }}>

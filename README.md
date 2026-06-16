@@ -81,22 +81,42 @@ npm run dev
 
 ## 模型训练
 
-在 **病历输入 → 模型训练** 标签页：
+### 入口
 
-1. 上传 DICOM/JSON 并开启 **「解析后直接入库」**
-2. 点击 **导出训练数据**（生成 `data/training/pathology_training.csv`）
-3. 点击 **开始训练**（保存至 `models/pathology_grade_classifier.joblib`）
+**病历输入 → 模型训练** 标签页，或命令行 `python -m ml.train_pathology`。
 
-命令行（在 `backend` 目录）：
+### 病理分级怎么训？
+
+| 步骤 | 操作 |
+|------|------|
+| 1 | **数据上传**：批量上传 DICOM / JSON，打开 **「解析后直接入库」** |
+| 2 | **准备标签**：每例需能区分 **高级别** / **低级别**（见下方标注方式） |
+| 3 | **样本量**：建议高级别 ~80 + 低级别 ~80（至少 4 例才能训练） |
+| 4 | **导出** → **开始训练** → 到 **诊断结果** 验证 |
+
+**标签标注方式（三选一）：**
+
+- **临床诊断文本**：如「卵巢高级别浆液性癌」「低级别浆液性癌」「G1 内膜样癌」
+- **JSON 字段**：`research_extensions.pathology_grade` = `高级别` 或 `低级别`
+- **影像辅助**：上传带 SUV/病灶描述的 DICOM，系统辅助推断（最终以病理为准）
+
+### 影像诊断怎么训？
+
+- **未上传影像**：模型仅使用临床特征（年龄、性别、身高体重等）
+- **已上传影像**：自动加入 SUVmax、MTV、TLG、病灶数等影像特征
+- **纯影像深度学习**（CNN）：当前为表格特征 + RandomForest；如需 CT/MRI 端到端分类，需在 `ml/` 扩展并自备标注 DICOM
+
+### 命令行
 
 ```bash
+cd backend
 pip install pandas scikit-learn joblib
 python -m ml.train_pathology export
 python -m ml.train_pathology train
 python -m ml.train_pathology status
 ```
 
-训练完成后，**诊断结果** 模块将优先使用已训练模型预测病理分级。
+训练完成后，**诊断结果** 模块将优先使用 `models/pathology_grade_classifier.joblib` 预测病理分级。
 
 ## 技术栈
 
