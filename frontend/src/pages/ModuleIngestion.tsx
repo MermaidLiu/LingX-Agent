@@ -1,15 +1,16 @@
 import { InboxOutlined } from "@ant-design/icons";
-import { App, Alert, Button, Col, Divider, Input, Row, Spin, Statistic, Switch, Table, Tag, Typography, Upload } from "antd";
+import { App, Alert, Button, Col, Divider, Input, Row, Spin, Statistic, Switch, Table, Tabs, Tag, Typography, Upload } from "antd";
 import axios from "axios";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import type { BatchIngestItem, PathologyBatchCohortResult, PetCtInterviewRecord } from "../api/client";
+import type { BatchIngestItem, PathologyBatchCohortResult } from "../api/client";
 import { batchIngest, pathologyBatchCohort } from "../api/client";
 import { mergeIngestedCase, saveClinicalDiagnosis } from "../lib/workflowCase";
+import IngestionTrainingPanel from "./IngestionTrainingPanel";
 
 const { Paragraph, Text } = Typography;
 
-export default function ModuleIngestion() {
+function IngestionUploadPanel() {
   const { message } = App.useApp();
   const [persist, setPersist] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -18,22 +19,7 @@ export default function ModuleIngestion() {
   const [cohort, setCohort] = useState<PathologyBatchCohortResult | null>(null);
 
   return (
-    <div>
-      <Typography.Title level={4} className="glass-page-title">
-        病历输入
-      </Typography.Title>
-      <Paragraph type="secondary">
-        工作台第 1 步：批量上传 DICOM（.dcm / ZIP），录入临床诊断，完成结构化解析与入库；上传后自动统计高/低级别队列分布。
-      </Paragraph>
-      <Alert
-        type="warning"
-        showIcon
-        closable
-        message="上传依赖本机后端 API（默认 8000 端口）"
-        description="请先在 PMP Agent 的 backend 目录执行：uvicorn app.main:app --reload --host 127.0.0.1 --port 8000。"
-        style={{ marginBottom: 16 }}
-      />
-
+    <>
       <Typography.Title level={5} style={{ marginTop: 0 }}>
         临床诊断
       </Typography.Title>
@@ -50,7 +36,7 @@ export default function ModuleIngestion() {
 
       <Typography.Title level={5}>DICOM / 病历文件上传</Typography.Title>
       <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
-        <span>解析后直接入库</span>
+        <span>解析后直接入库（模型训练需开启）</span>
         <Switch checked={persist} onChange={setPersist} />
       </div>
       <Spin spinning={loading} tip="正在解析并请求后端…">
@@ -146,6 +132,35 @@ export default function ModuleIngestion() {
           { title: "说明", dataIndex: "detail" },
         ]}
       />
+    </>
+  );
+}
+
+export default function ModuleIngestion() {
+  return (
+    <div>
+      <Typography.Title level={4} className="glass-page-title">
+        病历输入
+      </Typography.Title>
+      <Paragraph type="secondary">
+        工作台第 1 步：批量上传 DICOM、录入临床诊断并入库；可在「模型训练」标签导出数据并训练病理分级模型。
+      </Paragraph>
+      <Alert
+        type="info"
+        showIcon
+        closable
+        message="训练数据来自已入库病例"
+        description="上传时请打开「解析后直接入库」。训练前需先导出 CSV，再点击「开始训练」。"
+        style={{ marginBottom: 16 }}
+      />
+
+      <Tabs
+        items={[
+          { key: "upload", label: "数据上传", children: <IngestionUploadPanel /> },
+          { key: "training", label: "模型训练", children: <IngestionTrainingPanel /> },
+        ]}
+      />
+
       <Paragraph style={{ marginTop: 24 }}>
         下一步 →{" "}
         <Link to="/pathology" className="glass-link">

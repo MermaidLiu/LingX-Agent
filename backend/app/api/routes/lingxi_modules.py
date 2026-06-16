@@ -7,7 +7,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -38,6 +39,12 @@ from app.services.pathology_grader import (
     batch_cohort_from_dicom_records,
     correlate_clinical_indicators,
     recommend_literature,
+)
+from app.services.pathology_trainer import (
+    CSV_PATH,
+    export_training_csv,
+    get_training_status,
+    train_pathology_classifier,
 )
 from app.services.research_agent import ResearchAgent
 from app.services.suv_report_parser import merge_metrics_into_extensions
@@ -229,3 +236,43 @@ def module_pathology_literature(grade_label: str = "通用", topic: str = "") ->
     """按诊断结果与主题推荐文献。"""
     refs = recommend_literature(grade_label, topic)
     return {"grade_label": grade_label, "topic": topic, "literature": refs}
+
+
+@router.get("/training/status")
+def module_training_status(db: Session = Depends(get_db)) -> dict:
+    """模型训练：数据库病例数、CSV/模型文件状态、上次训练指标。"""
+    return get_training_status(db)
+
+
+@router.post("/training/export")
+def module_training_export(db: Session = Depends(get_db)) -> dict:
+    """从已入库病例导出训练 CSV（含推断的高/低级别标签）。"""
+    try:
+        return export_training_csv(db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/training/run")
+def module_training_run(db: Session = Depends(get_db)) -> dict:
+    """训练病理分级 RandomForest 模型并保存到 models/。"""
+    try:
+        return train_pathology_classifier(db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/training/download-csv")
+def module_training_download_csv() -> FileResponse:
+    """下载最近一次导出的训练 CSV。"""
+    if not CSV_PATH.is_file():
+        raise HTTPException(status_code=404, detail="训练 CSV 不存在，请先导出训练数据")
+    return FileResponse(
+        path=str(CSV_PATH),
+        filename="pathology_training.csv",
+        media_type="text/csv",
+    )

@@ -6,7 +6,7 @@
 
 | 步骤 | 模块 | 说明 |
 |------|------|------|
-| 1 | 病历输入 | DICOM 批量上传、临床诊断录入、结构化入库 |
+| 1 | 病历输入 | DICOM 批量上传、临床诊断录入、**模型训练**（导出 CSV + 训练分类器） |
 | 2 | 诊断结果 | 临床诊断 · 病理分级（高/低级别）· WHO 分级 · 综合评分 |
 | 3 | 治疗推荐 | 个体化治疗方案、MDT 建议、指南参考 |
 | 4 | 随访队列 | 队列筛选、随访对比、病理衔接 |
@@ -78,6 +78,25 @@ npm run dev
 | `OPENAI_API_KEY` | 大模型 API Key（留空则走离线演示模式） |
 | `DEMO_MODE` | `true` 时强制离线演示 |
 | `DATABASE_URL` | 默认 SQLite，可换 PostgreSQL |
+
+## 模型训练
+
+在 **病历输入 → 模型训练** 标签页：
+
+1. 上传 DICOM/JSON 并开启 **「解析后直接入库」**
+2. 点击 **导出训练数据**（生成 `data/training/pathology_training.csv`）
+3. 点击 **开始训练**（保存至 `models/pathology_grade_classifier.joblib`）
+
+命令行（在 `backend` 目录）：
+
+```bash
+pip install pandas scikit-learn joblib
+python -m ml.train_pathology export
+python -m ml.train_pathology train
+python -m ml.train_pathology status
+```
+
+训练完成后，**诊断结果** 模块将优先使用已训练模型预测病理分级。
 
 ## 技术栈
 

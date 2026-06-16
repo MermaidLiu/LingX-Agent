@@ -250,6 +250,21 @@ def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
             elif rx.global_quant.suv_max < 2.5:
                 grade_label, confidence = "低级别", 0.58
 
+    model_note = ""
+    try:
+        from app.services.pathology_trainer import predict_with_trained_model
+
+        ml_pred = predict_with_trained_model(record)
+        if ml_pred and ml_pred.get("grade_label") in ("高级别", "低级别"):
+            grade_label = ml_pred["grade_label"]
+            confidence = max(confidence, float(ml_pred.get("confidence", confidence)))
+            evidence.append(
+                f"训练模型预测：{grade_label}（置信度 {ml_pred['confidence']:.0%}）"
+            )
+            model_note = "（含已训练模型预测）"
+    except Exception:
+        pass
+
     has_pet = _has_pet_data(record)
     composite, breakdown, score_interp = _compute_composite_score(
         grade_label, confidence, rx.global_quant.suv_max if has_pet else None, has_pet
@@ -284,7 +299,7 @@ def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
     diagnosis_summary = (
         f"临床诊断「{dx}」{pet_clause}。"
         f"病理分级：{grade_label}（WHO {_who_grade_for(grade_label)}），"
-        f"综合评分 {composite} 分（{_score_level_for(composite)}），置信度 {confidence:.0%}。"
+        f"综合评分 {composite} 分（{_score_level_for(composite)}），置信度 {confidence:.0%}{model_note}。"
     )
 
     literature = recommend_literature(grade_label, dx)

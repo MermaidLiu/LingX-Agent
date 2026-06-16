@@ -240,3 +240,52 @@ export async function correlatePathology(body: {
   const { data } = await api.post<ClinicalCorrelationResult>("/api/v1/modules/pathology/correlation", body);
   return data;
 }
+
+export type TrainingStatus = {
+  db_case_count: number;
+  csv_exists: boolean;
+  csv_path: string;
+  model_exists: boolean;
+  model_path: string;
+  last_training: Record<string, unknown>;
+};
+
+export type TrainingExportResult = {
+  csv_path: string;
+  total_rows: number;
+  high_grade_count: number;
+  low_grade_count: number;
+  preview: Array<Record<string, unknown>>;
+  meta?: Record<string, unknown>;
+};
+
+export type TrainingRunResult = {
+  ok: boolean;
+  message: string;
+  accuracy: number;
+  samples: number;
+  high_grade_count: number;
+  low_grade_count: number;
+  model_path: string;
+  feature_cols: string[];
+  meta?: Record<string, unknown>;
+};
+
+export async function getTrainingStatus() {
+  const { data } = await api.get<TrainingStatus>("/api/v1/modules/training/status");
+  return data;
+}
+
+export async function exportTrainingData() {
+  const { data } = await api.post<TrainingExportResult>("/api/v1/modules/training/export");
+  return data;
+}
+
+export async function runTraining() {
+  const { data } = await api.post<TrainingRunResult>("/api/v1/modules/training/run");
+  return data;
+}
+
+export function downloadTrainingCsv() {
+  window.open("/api/v1/modules/training/download-csv", "_blank");
+}
