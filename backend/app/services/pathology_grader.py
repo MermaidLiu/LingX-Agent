@@ -8,6 +8,9 @@ from typing import Any
 
 from app.models.domain import (
     ClinicalCorrelationResult,
+    FeatureContributionItem,
+    FeatureImportanceItem,
+    ModelExplainability,
     PathologyAnalysisResult,
     PathologyBatchCohortResult,
     PathologyGradingDetail,
@@ -16,16 +19,52 @@ from app.models.domain import (
 )
 
 # 高级别 / 低级别关键词（演示规则引擎，可替换为深度学习模型）
-_HIGH_GRADE_PATTERNS = re.compile(
-    r"高级别|高度恶性|G3|grade\s*3|WHO\s*III|III级|浸润性|脉管侵犯|Ki-?67\s*[>≥]\s*20|"
-    r"核分裂象.*高|坏死|异型性明显|高级别浆液|高级别神经内分泌",
-    re.I,
-)
 _LOW_GRADE_PATTERNS = re.compile(
     r"低级别|低度恶性|G1|grade\s*1|WHO\s*I|I级|良性|交界|Ki-?67\s*[<≤]\s*10|"
-    r"核分裂象.*低|异型性轻|纤维腺瘤|腺瘤|囊肿|炎性",
+    r"核分裂象.*低|异型性轻|纤维腺瘤|腺瘤|囊肿|炎性|"
+    r"DPAM|扩散性腹膜腺瘤病|假粘液瘤|腹膜假粘液瘤|PMP|LAMN|低级别.*?粘液",
     re.I,
 )
+_HIGH_GRADE_PATTERNS = re.compile(
+    r"高级别|高度恶性|G3|grade\s*3|WHO\s*III|III级|浸润性|脉管侵犯|Ki-?67\s*[>≥]\s*20|"
+    r"核分裂象.*高|坏死|异型性明显|高级别浆液|高级别神经内分泌|"
+    r"PMCA|腹膜粘液癌|peritoneal mucinous carcinomatosis|粘液癌|高级别.*?粘液|Signet ring",
+    re.I,
+)
+
+# 腹腔粘液瘤 / PMP 专用术语 → 分级依据（可解释性展示）
+_PMP_EVIDENCE_RULES: list[tuple[str, str, str]] = [
+    (
+        "低级别",
+        r"DPAM|disseminated peritoneal adenomucinosis|扩散性腹膜腺瘤病",
+        "DPAM（扩散性腹膜腺瘤病）：腹膜假粘液瘤经典低级别表型，以黏液分泌为主、浸润成分少",
+    ),
+    (
+        "低级别",
+        r"LAMN|低级别阑尾粘液性肿瘤|low.?grade appendiceal mucinous",
+        "LAMN（低级别阑尾粘液性肿瘤）：原发灶倾向低级别，需评估腹膜播散范围",
+    ),
+    (
+        "低级别",
+        r"假粘液瘤|腹膜假粘液瘤|pseudomyxoma peritonei",
+        "腹膜假粘液瘤（PMP）：多数为 DPAM 低级别表型，需与 PMCA 鉴别",
+    ),
+    (
+        "高级别",
+        r"PMCA|peritoneal mucinous carcinomatosis|腹膜粘液癌",
+        "PMCA（腹膜粘液癌）：高级别浸润性成分，预后较差，倾向高级别治疗路径",
+    ),
+    (
+        "高级别",
+        r"高级别腹膜粘液|high.?grade mucinous|signet.?ring|印戒",
+        "高级别粘液性癌 / 印戒细胞成分：倾向高级别分级与积极综合治疗",
+    ),
+    (
+        "低级别",
+        r"黏液腺瘤|粘液腺瘤|mucinous adenoma",
+        "粘液性腺瘤：通常为低级别或交界性，需结合腹膜种植情况",
+    ),
+]
 
 # 已知临床指标与诊断结果的相关性知识库（可随病例积累扩展）
 _INDICATOR_KNOWLEDGE: list[dict[str, Any]] = [
@@ -130,6 +169,22 @@ _TREATMENT_BY_GRADE: dict[str, list[str]] = {
 
 def _stable_hash(text: str) -> int:
     return int(hashlib.md5(text.encode()).hexdigest(), 16)
+
+
+def _extract_pmp_evidence(*texts: str) -> list[str]:
+    """腹腔粘液瘤专用：DPAM / PMCA 等术语映射为分级依据。"""
+    combined = " ".join(t for t in texts if t)
+    if not combined.strip():
+        return []
+    if not re.search(r"粘液|黏液|mucin|PMP|DPAM|PMCA|假粘液|腹膜", combined, re.I):
+        return []
+    hits: list[str] = []
+    seen: set[str] = set()
+    for _grade, pattern, explanation in _PMP_EVIDENCE_RULES:
+        if re.search(pattern, combined, re.I) and explanation not in seen:
+            seen.add(explanation)
+            hits.append(f"[{_grade}] {explanation}")
+    return hits
 
 
 def _infer_grade_from_text(*texts: str) -> tuple[str, float, list[str]]:
@@ -241,6 +296,17 @@ def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
         iv.brief_medical_history,
     )
 
+    explainability = ModelExplainability()
+    pmp_ev = _extract_pmp_evidence(
+        dx,
+        narrative,
+        iv.brief_medical_history,
+        rx.primary_disease_name or "",
+    )
+    if pmp_ev:
+        evidence.extend(pmp_ev)
+        explainability.pmp_evidence = pmp_ev
+
     suv_hint = _suv_grade_hint(rx.global_quant.suv_max) if _has_pet_data(record) else ""
     if suv_hint:
         evidence.append(suv_hint)
@@ -251,19 +317,59 @@ def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
                 grade_label, confidence = "低级别", 0.58
 
     model_note = ""
+    ml_pred: dict[str, Any] | None = None
     try:
-        from app.services.pathology_trainer import predict_with_trained_model
+        from app.services.pathology_trainer import get_global_feature_importance, predict_with_trained_model
 
         ml_pred = predict_with_trained_model(record)
         if ml_pred and ml_pred.get("grade_label") in ("高级别", "低级别"):
             grade_label = ml_pred["grade_label"]
             confidence = max(confidence, float(ml_pred.get("confidence", confidence)))
+            probs = ml_pred.get("probabilities", {})
+            high_p = probs.get("高级别", 0)
+            low_p = probs.get("低级别", 0)
             evidence.append(
-                f"训练模型预测：{grade_label}（置信度 {ml_pred['confidence']:.0%}）"
+                f"训练模型预测：{grade_label}（高级别 {high_p:.0%} / 低级别 {low_p:.0%}）"
             )
             model_note = "（含已训练模型预测）"
+            explainability.probabilities = probs
+            explainability.feature_contributions = [
+                FeatureContributionItem(**c) for c in ml_pred.get("feature_contributions", [])
+            ]
+            explainability.global_feature_importance = [
+                FeatureImportanceItem(**i) for i in ml_pred.get("global_feature_importance", [])
+            ]
+            explainability.prediction_source = ml_pred.get("source", "trained_model")
+            explainability.explanation_method = ml_pred.get("explanation_method", "")
     except Exception:
         pass
+
+    if not explainability.probabilities:
+        other = max(0.0, 1.0 - confidence)
+        if grade_label == "高级别":
+            explainability.probabilities = {
+                "高级别": round(confidence, 4),
+                "低级别": round(other, 4),
+            }
+        elif grade_label == "低级别":
+            explainability.probabilities = {
+                "低级别": round(confidence, 4),
+                "高级别": round(other, 4),
+            }
+        else:
+            explainability.probabilities = {"高级别": 0.5, "低级别": 0.5}
+        explainability.prediction_source = "rule_engine"
+        explainability.explanation_method = "keyword_rules"
+        try:
+            from app.services.pathology_trainer import get_global_feature_importance
+
+            gfi = get_global_feature_importance()
+            if gfi:
+                explainability.global_feature_importance = [
+                    FeatureImportanceItem(**i) for i in gfi
+                ]
+        except Exception:
+            pass
 
     has_pet = _has_pet_data(record)
     composite, breakdown, score_interp = _compute_composite_score(
@@ -317,6 +423,7 @@ def analyze_case(record: PetCtInterviewRecord) -> PathologyAnalysisResult:
             *( [f"病灶数: {len(rx.lesions)}"] if rx.lesions else [] ),
             *( ["已上传影像数据"] if has_pet else ["未上传影像，仅基于临床诊断"] ),
         ],
+        explainability=explainability,
     )
 
 

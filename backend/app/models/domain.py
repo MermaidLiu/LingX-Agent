@@ -327,6 +327,31 @@ class PathologyGradingDetail(BaseModel):
     biomarkers_suggested: list[str] = Field(default_factory=list)
 
 
+class FeatureContributionItem(BaseModel):
+    feature: str = ""
+    display_name: str = ""
+    value: float = 0.0
+    contribution: float = 0.0
+    direction: str = ""
+
+
+class FeatureImportanceItem(BaseModel):
+    feature: str = ""
+    display_name: str = ""
+    importance: float = 0.0
+
+
+class ModelExplainability(BaseModel):
+    """模型可解释性：概率、特征贡献、全局重要性、腹腔粘液瘤专用依据。"""
+
+    probabilities: dict[str, float] = Field(default_factory=dict)
+    feature_contributions: list[FeatureContributionItem] = Field(default_factory=list)
+    global_feature_importance: list[FeatureImportanceItem] = Field(default_factory=list)
+    prediction_source: str = ""
+    explanation_method: str = ""
+    pmp_evidence: list[str] = Field(default_factory=list)
+
+
 class TreatmentRecommendation(BaseModel):
     """基于诊断结果的治疗推荐。"""
 
@@ -345,6 +370,7 @@ class PathologyAnalysisResult(BaseModel):
     treatment: TreatmentRecommendation = Field(default_factory=TreatmentRecommendation)
     literature: list[dict[str, str]] = Field(default_factory=list)
     multimodal_notes: list[str] = Field(default_factory=list)
+    explainability: ModelExplainability = Field(default_factory=ModelExplainability)
 
 
 class PathologyBatchCohortResult(BaseModel):

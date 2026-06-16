@@ -1,16 +1,29 @@
-import { ExperimentOutlined } from "@ant-design/icons";
-import { App, Button, Card, Col, Descriptions, Progress, Row, Statistic, Tag, Typography } from "antd";
-import { useState } from "react";
+import { ExperimentOutlined, TeamOutlined } from "@ant-design/icons";
+import { App, Button, Card, Col, Descriptions, Progress, Row, Space, Statistic, Table, Tag, Typography } from "antd";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { analyzePathology, type PathologyAnalysisResult } from "../api/client";
+import { analyzePathology, saveCase, type PathologyAnalysisResult } from "../api/client";
+import { addToFollowUpQueue, isInFollowUpQueue } from "../lib/followUpQueue";
 import { getWorkflowCase } from "../lib/workflowCase";
 
 const { Paragraph, Title, Text } = Typography;
+
+function pct(n: number | undefined) {
+  if (n == null || Number.isNaN(n)) return "—";
+  return `${(n * 100).toFixed(0)}%`;
+}
 
 export default function ModulePathology() {
   const { message } = App.useApp();
   const [analysis, setAnalysis] = useState<PathologyAnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [followUpLoading, setFollowUpLoading] = useState(false);
+  const [inFollowUp, setInFollowUp] = useState(false);
+
+  useEffect(() => {
+    const examId = getWorkflowCase().patient_base_info.exam_id;
+    setInFollowUp(isInFollowUpQueue(examId));
+  }, [analysis]);
 
   async function runAnalyze() {
     setLoading(true);
@@ -25,11 +38,35 @@ export default function ModulePathology() {
     }
   }
 
+  async function handleAddToFollowUp() {
+    if (!analysis) return;
+    setFollowUpLoading(true);
+    try {
+      const record = getWorkflowCase();
+      await addToFollowUpQueue(record, analysis, saveCase);
+      setInFollowUp(true);
+      message.success("已加入随访队列，可在「随访队列」模块查看");
+    } catch {
+      message.error("加入随访队列失败，请确认后端已启动");
+    } finally {
+      setFollowUpLoading(false);
+    }
+  }
+
   const g = analysis?.grading;
+  const exp = analysis?.explainability;
+  const highProb = exp?.probabilities?.["高级别"] ?? 0;
+  const lowProb = exp?.probabilities?.["低级别"] ?? 0;
+
   const gradeColor = (label: string) =>
     label === "高级别" ? "red" : label === "低级别" ? "green" : "default";
   const scoreColor = (level: string) =>
     level === "高危" ? "#cf1322" : level === "中危" ? "#d48806" : "#3f8600";
+
+  const maxContrib =
+    exp?.feature_contributions?.length
+      ? Math.max(...exp.feature_contributions.map((c) => Math.abs(c.contribution)), 0.0001)
+      : 1;
 
   return (
     <div>
@@ -38,7 +75,7 @@ export default function ModulePathology() {
       </Title>
       <Paragraph type="secondary">
         工作台第 2 步：读取第 1 步录入的临床诊断与 DICOM 数据，输出病理分级、WHO 分级与综合评分。
-        若未上传影像（DICOM），则不会显示 SUV 等代谢指标，仅基于临床诊断分析。
+        若未上传含 PET 的 DICOM，则不会显示 SUV 等代谢指标，仅基于临床诊断分析。
       </Paragraph>
       <Button type="primary" icon={<ExperimentOutlined />} loading={loading} onClick={runAnalyze}>
         生成诊断结果
@@ -74,6 +111,36 @@ export default function ModulePathology() {
               </Card>
             </Col>
             <Col xs={24} md={8}>
+              <Card title="分级概率" size="small">
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <Text>高级别</Text>
+                    <Text strong style={{ color: "#cf1322" }}>
+                      {pct(highProb)}
+                    </Text>
+                  </div>
+                  <Progress percent={Math.round(highProb * 100)} showInfo={false} strokeColor="#cf1322" size="small" />
+                </div>
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <Text>低级别</Text>
+                    <Text strong style={{ color: "#3f8600" }}>
+                      {pct(lowProb)}
+                    </Text>
+                  </div>
+                  <Progress percent={Math.round(lowProb * 100)} showInfo={false} strokeColor="#3f8600" size="small" />
+                </div>
+                {exp?.prediction_source ? (
+                  <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0, fontSize: 12 }}>
+                    来源：{exp.prediction_source === "trained_model" ? "训练模型" : "规则引擎"}
+                    {exp.explanation_method
+                      ? ` · 解释方法：${exp.explanation_method === "shap_tree" ? "SHAP" : "偏差×重要性"}`
+                      : null}
+                  </Paragraph>
+                ) : null}
+              </Card>
+            </Col>
+            <Col xs={24} md={8}>
               <Card title="综合评分" size="small">
                 <Statistic
                   value={g.composite_score ?? 0}
@@ -88,7 +155,10 @@ export default function ModulePathology() {
                 </Paragraph>
               </Card>
             </Col>
-            <Col xs={24} md={8}>
+          </Row>
+
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            <Col xs={24} md={12}>
               <Card title="评分明细" size="small">
                 {Object.entries(g.score_breakdown || {}).map(([k, v]) => (
                   <div key={k} style={{ marginBottom: 10 }}>
@@ -101,7 +171,80 @@ export default function ModulePathology() {
                 ))}
               </Card>
             </Col>
+            <Col xs={24} md={12}>
+              <Card title="本例特征贡献（单例解释）" size="small">
+                {exp?.feature_contributions?.length ? (
+                  <Table
+                    size="small"
+                    pagination={false}
+                    rowKey="feature"
+                    dataSource={exp.feature_contributions}
+                    columns={[
+                      { title: "特征", dataIndex: "display_name", width: 100 },
+                      { title: "取值", dataIndex: "value", width: 72, render: (v: number) => v.toFixed(2) },
+                      {
+                        title: "贡献",
+                        dataIndex: "contribution",
+                        width: 72,
+                        render: (v: number) => (
+                          <Text style={{ color: v > 0 ? "#cf1322" : "#3f8600" }}>
+                            {v > 0 ? "+" : ""}
+                            {v.toFixed(3)}
+                          </Text>
+                        ),
+                      },
+                      {
+                        title: "方向",
+                        dataIndex: "direction",
+                        ellipsis: true,
+                        render: (v: string) => (
+                          <Tag color={v.includes("高级别") ? "red" : "green"}>{v}</Tag>
+                        ),
+                      },
+                      {
+                        title: "",
+                        key: "bar",
+                        width: 120,
+                        render: (_: unknown, row: { contribution: number }) => (
+                          <Progress
+                            percent={Math.round((Math.abs(row.contribution) / maxContrib) * 100)}
+                            showInfo={false}
+                            strokeColor={row.contribution > 0 ? "#cf1322" : "#3f8600"}
+                            size="small"
+                          />
+                        ),
+                      },
+                    ]}
+                  />
+                ) : (
+                  <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                    暂无单例特征贡献。请先在「病历输入 → 模型训练」完成训练，或上传含 SUV/MTV 的影像数据。
+                  </Paragraph>
+                )}
+              </Card>
+            </Col>
           </Row>
+
+          {exp?.pmp_evidence?.length ? (
+            <Card title="腹腔粘液瘤专用依据（DPAM / PMCA）" size="small" style={{ marginBottom: 16 }}>
+              <ul style={{ paddingLeft: 20, margin: 0 }}>
+                {exp.pmp_evidence.map((e, i) => (
+                  <li key={i}>
+                    {e.startsWith("[高级别]") ? (
+                      <Tag color="red" style={{ marginRight: 8 }}>
+                        高级别
+                      </Tag>
+                    ) : e.startsWith("[低级别]") ? (
+                      <Tag color="green" style={{ marginRight: 8 }}>
+                        低级别
+                      </Tag>
+                    ) : null}
+                    {e.replace(/^\[(高级别|低级别)\]\s*/, "")}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
 
           <Card title="诊断依据" size="small" style={{ marginBottom: 16 }}>
             <ul style={{ paddingLeft: 20, margin: 0 }}>
@@ -117,7 +260,7 @@ export default function ModulePathology() {
           </Card>
 
           {analysis.multimodal_notes.length > 0 ? (
-            <Descriptions bordered size="small" column={2} title="多模态摘要">
+            <Descriptions bordered size="small" column={2} title="多模态摘要" style={{ marginBottom: 16 }}>
               {analysis.multimodal_notes.map((n, i) => (
                 <Descriptions.Item key={i} label={`项 ${i + 1}`}>
                   {n}
@@ -125,6 +268,28 @@ export default function ModulePathology() {
               ))}
             </Descriptions>
           ) : null}
+
+          <Card title="随访队列" size="small" style={{ marginBottom: 16 }}>
+            <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+              若本例需要长期随访，可一键加入随访队列；系统将保存病理分级并同步至数据库。
+            </Paragraph>
+            <Space wrap>
+              <Button
+                type={inFollowUp ? "default" : "primary"}
+                icon={<TeamOutlined />}
+                loading={followUpLoading}
+                disabled={inFollowUp}
+                onClick={() => void handleAddToFollowUp()}
+              >
+                {inFollowUp ? "已在随访队列" : "加入随访队列"}
+              </Button>
+              {inFollowUp ? (
+                <Link to="/cohort" className="glass-link">
+                  前往随访队列查看 →
+                </Link>
+              ) : null}
+            </Space>
+          </Card>
         </div>
       ) : null}
       <Paragraph style={{ marginTop: 24 }}>

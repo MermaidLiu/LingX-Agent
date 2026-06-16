@@ -1,9 +1,10 @@
-import { App, Alert, Button, Collapse, Descriptions, Space, Table, Tag, Typography } from "antd";
+import { App, Alert, Button, Card, Collapse, Descriptions, Progress, Space, Table, Tag, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
 import {
   exportTrainingData,
   getTrainingStatus,
   runTraining,
+  type FeatureImportanceItem,
   type TrainingExportResult,
   type TrainingRunResult,
   type TrainingStatus,
@@ -72,6 +73,17 @@ export default function IngestionTrainingPanel() {
     }
   }
 
+  const featureImportance: FeatureImportanceItem[] =
+    trainResult?.feature_importance ??
+    status?.feature_importance ??
+    (status?.last_training?.feature_importance as FeatureImportanceItem[] | undefined) ??
+    [];
+
+  const maxImportance =
+    featureImportance.length > 0
+      ? Math.max(...featureImportance.map((f) => f.importance), 0.0001)
+      : 1;
+
   return (
     <div>
       <Alert
@@ -126,7 +138,7 @@ export default function IngestionTrainingPanel() {
               <Paragraph style={{ marginBottom: 0 }}>
                 本平台「影像诊断」指：上传 DICOM 后提取检查号、模态、SUV/MTV/TLG 等特征，与临床信息一起参与分级预测。
                 若要做<strong>纯影像分类</strong>（如 CT 良恶性），需为每例 DICOM 提供明确诊断标签（JSON 或诊断文本），
-                并保证「解析后直接入库」。当前默认使用 RandomForest 融合临床 + 影像数值特征；深度影像模型（CNN）
+                并保证「解析后直接入库」。当前默认使用 XGBoost 融合临床 + 影像数值特征；深度影像模型（CNN）
                 可在后续接入 <Text code>ml/</Text> 目录扩展。
               </Paragraph>
             ),
@@ -135,7 +147,7 @@ export default function IngestionTrainingPanel() {
       />
 
       <Paragraph type="secondary">
-        从已入库病例导出特征与标签，训练 RandomForest 分类模型。训练完成后，第 2 步「诊断结果」将优先使用模型预测。
+        从已入库病例导出特征与标签，训练 XGBoost 分类模型。训练完成后，第 2 步「诊断结果」将优先使用模型预测。
       </Paragraph>
 
       <Descriptions bordered size="small" column={2} style={{ marginBottom: 16 }}>
@@ -205,7 +217,7 @@ export default function IngestionTrainingPanel() {
       ) : null}
 
       {trainResult ? (
-        <Descriptions bordered size="small" column={1} title="训练结果">
+        <Descriptions bordered size="small" column={1} title="训练结果" style={{ marginBottom: 16 }}>
           <Descriptions.Item label="样本数">{trainResult.samples}</Descriptions.Item>
           <Descriptions.Item label="高级别 / 低级别">
             {trainResult.high_grade_count} / {trainResult.low_grade_count}
@@ -220,12 +232,34 @@ export default function IngestionTrainingPanel() {
         </Descriptions>
       ) : null}
 
+      {featureImportance.length > 0 ? (
+        <Card title="特征重要性（训练后全局）" size="small" style={{ marginBottom: 16 }}>
+          <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+            展示 SUVmax、年龄、MTV 等对病理分级预测的全局贡献（XGBoost 特征重要性）。
+          </Paragraph>
+          {featureImportance.map((item) => (
+            <div key={item.feature} style={{ marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <Text>{item.display_name || item.feature}</Text>
+                <Text strong>{(item.importance * 100).toFixed(1)}%</Text>
+              </div>
+              <Progress
+                percent={Math.round((item.importance / maxImportance) * 100)}
+                showInfo={false}
+                strokeColor="#1677ff"
+                size="small"
+              />
+            </div>
+          ))}
+        </Card>
+      ) : null}
+
       <Paragraph type="secondary" style={{ marginTop: 16, marginBottom: 0 }}>
         命令行等价操作（在 backend 目录）：
         <br />
-        <Text code>python -m ml.train_pathology export</Text>
+        <Text code>python3 -m ml.train_pathology export</Text>
         {" · "}
-        <Text code>python -m ml.train_pathology train</Text>
+        <Text code>python3 -m ml.train_pathology train</Text>
       </Paragraph>
     </div>
   );

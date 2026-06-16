@@ -1,38 +1,131 @@
 import { InboxOutlined } from "@ant-design/icons";
-import { App, Alert, Button, Col, Divider, Input, Row, Spin, Statistic, Switch, Table, Tabs, Tag, Typography, Upload } from "antd";
+import { App, Alert, Button, Col, Divider, Form, Input, InputNumber, Row, Select, Spin, Statistic, Switch, Table, Tabs, Tag, Typography, Upload } from "antd";
 import axios from "axios";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { BatchIngestItem, PathologyBatchCohortResult } from "../api/client";
 import { batchIngest, pathologyBatchCohort } from "../api/client";
-import { mergeIngestedCase, saveClinicalDiagnosis } from "../lib/workflowCase";
+import { getWorkflowCase, mergeIngestedCase, saveClinicalFields } from "../lib/workflowCase";
 import IngestionTrainingPanel from "./IngestionTrainingPanel";
 
 const { Paragraph, Text } = Typography;
 
 function IngestionUploadPanel() {
   const { message } = App.useApp();
+  const initial = getWorkflowCase();
   const [persist, setPersist] = useState(false);
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<BatchIngestItem[]>([]);
-  const [clinicalDiagnosis, setClinicalDiagnosis] = useState("卵巢肿物，待病理学分级明确");
   const [cohort, setCohort] = useState<PathologyBatchCohortResult | null>(null);
+
+  const [clinicalDiagnosis, setClinicalDiagnosis] = useState(
+    initial.interview_info.clinical_diagnosis || "腹膜假粘液瘤（PMP），待 DPAM/PMCA 分型",
+  );
+  const [briefHistory, setBriefHistory] = useState(initial.interview_info.brief_medical_history || "");
+  const [age, setAge] = useState<number | null>(initial.patient_base_info.age || null);
+  const [gender, setGender] = useState(initial.patient_base_info.gender || "");
+  const [department, setDepartment] = useState(initial.patient_base_info.department || "妇科肿瘤科");
+  const [medicalRecordId, setMedicalRecordId] = useState(initial.patient_base_info.medical_record_id || "");
+
+  function syncClinicalFields(overrides: Parameters<typeof saveClinicalFields>[0] = {}) {
+    saveClinicalFields({
+      clinicalDiagnosis,
+      briefMedicalHistory: briefHistory,
+      age: age ?? undefined,
+      gender,
+      department,
+      medicalRecordId,
+      ...overrides,
+    });
+  }
 
   return (
     <>
       <Typography.Title level={5} style={{ marginTop: 0 }}>
-        临床诊断
+        临床数据 / 病历输入
       </Typography.Title>
-      <Input.TextArea
-        rows={2}
-        value={clinicalDiagnosis}
-        onChange={(e) => {
-          setClinicalDiagnosis(e.target.value);
-          saveClinicalDiagnosis(e.target.value);
-        }}
-        placeholder="输入临床诊断，如：卵巢高级别浆液性癌待排、肺腺癌等"
-        style={{ maxWidth: 640, marginBottom: 16 }}
-      />
+      <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+        填写临床诊断与基本病历信息，将与上传的 DICOM / JSON 一并带入「诊断结果」与随访队列。
+      </Paragraph>
+      <Form layout="vertical" style={{ maxWidth: 720, marginBottom: 16 }}>
+        <Form.Item label="临床诊断" required>
+          <Input.TextArea
+            rows={2}
+            value={clinicalDiagnosis}
+            onChange={(e) => {
+              setClinicalDiagnosis(e.target.value);
+              syncClinicalFields({ clinicalDiagnosis: e.target.value });
+            }}
+            placeholder="如：腹膜假粘液瘤 DPAM、PMCA 待排、卵巢高级别浆液性癌等"
+          />
+        </Form.Item>
+        <Form.Item label="简要病史 / 现病史">
+          <Input.TextArea
+            rows={2}
+            value={briefHistory}
+            onChange={(e) => {
+              setBriefHistory(e.target.value);
+              syncClinicalFields({ briefMedicalHistory: e.target.value });
+            }}
+            placeholder="主诉、既往史、手术史、腹腔种植范围等"
+          />
+        </Form.Item>
+        <Row gutter={16}>
+          <Col xs={24} sm={8}>
+            <Form.Item label="年龄">
+              <InputNumber
+                min={0}
+                max={120}
+                style={{ width: "100%" }}
+                value={age}
+                onChange={(v) => {
+                  setAge(v);
+                  syncClinicalFields({ age: v ?? undefined });
+                }}
+              />
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={8}>
+            <Form.Item label="性别">
+              <Select
+                allowClear
+                placeholder="请选择"
+                value={gender || undefined}
+                onChange={(v) => {
+                  setGender(v || "");
+                  syncClinicalFields({ gender: v || "" });
+                }}
+                options={[
+                  { value: "男", label: "男" },
+                  { value: "女", label: "女" },
+                ]}
+              />
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={8}>
+            <Form.Item label="病历号">
+              <Input
+                value={medicalRecordId}
+                onChange={(e) => {
+                  setMedicalRecordId(e.target.value);
+                  syncClinicalFields({ medicalRecordId: e.target.value });
+                }}
+                placeholder="院内病历号"
+              />
+            </Form.Item>
+          </Col>
+        </Row>
+        <Form.Item label="科室">
+          <Input
+            value={department}
+            onChange={(e) => {
+              setDepartment(e.target.value);
+              syncClinicalFields({ department: e.target.value });
+            }}
+            placeholder="如：妇科肿瘤科"
+          />
+        </Form.Item>
+      </Form>
 
       <Typography.Title level={5}>DICOM / 病历文件上传</Typography.Title>
       <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 12 }}>
@@ -50,6 +143,7 @@ function IngestionUploadPanel() {
             if (!last || last.uid !== file.uid) return false;
             setLoading(true);
             try {
+              syncClinicalFields();
               const files = fileList.map((f) => (("originFileObj" in f && f.originFileObj) || f) as File);
               const [data, cohortRes] = await Promise.all([
                 batchIngest(files, persist),
@@ -59,15 +153,16 @@ function IngestionUploadPanel() {
               const okParsed = data.find((r) => r.ok && r.parsed);
               if (okParsed?.parsed) {
                 mergeIngestedCase(okParsed.parsed, clinicalDiagnosis);
+                syncClinicalFields();
               } else {
-                saveClinicalDiagnosis(clinicalDiagnosis);
+                syncClinicalFields();
               }
               if (cohortRes && cohortRes.total > 0) setCohort(cohortRes);
               const failed = data.filter((r) => !r.ok).length;
               if (failed) {
                 message.warning(`已处理 ${data.length} 个文件，其中 ${failed} 个失败`);
               } else {
-                message.success(`已处理 ${data.length} 个文件，临床诊断已关联`);
+                message.success(`已处理 ${data.length} 个文件，临床数据已关联`);
               }
             } catch (e: unknown) {
               let hint = "请确认后端已启动（127.0.0.1:8000）。";
@@ -143,7 +238,7 @@ export default function ModuleIngestion() {
         病历输入
       </Typography.Title>
       <Paragraph type="secondary">
-        工作台第 1 步：批量上传 DICOM、录入临床诊断并入库；可在「模型训练」标签导出数据并训练病理分级模型。
+        工作台第 1 步：录入临床数据与病历信息、批量上传 DICOM 并入库；可在「模型训练」标签导出数据并训练病理分级模型。
       </Paragraph>
       <Alert
         type="info"

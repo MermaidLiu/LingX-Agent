@@ -191,6 +191,29 @@ export type TreatmentRecommendation = {
   mdt_recommended: boolean;
 };
 
+export type FeatureContributionItem = {
+  feature: string;
+  display_name: string;
+  value: number;
+  contribution: number;
+  direction: string;
+};
+
+export type FeatureImportanceItem = {
+  feature: string;
+  display_name: string;
+  importance: number;
+};
+
+export type ModelExplainability = {
+  probabilities: Record<string, number>;
+  feature_contributions: FeatureContributionItem[];
+  global_feature_importance: FeatureImportanceItem[];
+  prediction_source: string;
+  explanation_method: string;
+  pmp_evidence: string[];
+};
+
 export type PathologyAnalysisResult = {
   diagnosis_summary: string;
   inferred_diagnosis: string;
@@ -198,6 +221,7 @@ export type PathologyAnalysisResult = {
   treatment: TreatmentRecommendation;
   literature: Array<{ title: string; journal: string; year: string; pmid: string }>;
   multimodal_notes: string[];
+  explainability?: ModelExplainability;
 };
 
 export type PathologyBatchCohortResult = {
@@ -248,6 +272,7 @@ export type TrainingStatus = {
   model_exists: boolean;
   model_path: string;
   last_training: Record<string, unknown>;
+  feature_importance?: FeatureImportanceItem[];
 };
 
 export type TrainingExportResult = {
@@ -268,6 +293,7 @@ export type TrainingRunResult = {
   low_grade_count: number;
   model_path: string;
   feature_cols: string[];
+  feature_importance?: FeatureImportanceItem[];
   meta?: Record<string, unknown>;
 };
 

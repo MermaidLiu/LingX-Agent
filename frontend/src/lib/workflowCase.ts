@@ -5,7 +5,7 @@ const STORAGE_KEY = "pmp_workflow_case";
 
 /** 病理分级场景默认病例（无发热待查、无 PET 预填，待 DICOM/临床输入） */
 export function buildPathologyBaseCase(clinicalDiagnosis?: string): PetCtInterviewRecord {
-  const dx = clinicalDiagnosis?.trim() || "卵巢肿物，待病理学分级明确";
+  const dx = clinicalDiagnosis?.trim() || "腹膜假粘液瘤（PMP），待 DPAM/PMCA 分型与病理分级";
   return {
     ...demoRecord,
     patient_base_info: {
@@ -17,7 +17,7 @@ export function buildPathologyBaseCase(clinicalDiagnosis?: string): PetCtIntervi
     interview_info: {
       ...demoRecord.interview_info,
       clinical_diagnosis: dx,
-      brief_medical_history: "盆腔肿物待进一步病理及影像评估，无发热病史。",
+      brief_medical_history: "腹腔广泛粘液性种植，待病理确认 DPAM 或 PMCA 表型。",
       nodule_diagnosis: dx,
     },
     supplementary_interview_info: {
@@ -55,25 +55,59 @@ export function saveWorkflowCase(record: PetCtInterviewRecord): void {
 }
 
 export function saveClinicalDiagnosis(clinicalDiagnosis: string): void {
+  saveClinicalFields({ clinicalDiagnosis });
+}
+
+export type ClinicalFieldInput = {
+  clinicalDiagnosis?: string;
+  briefMedicalHistory?: string;
+  age?: number;
+  gender?: string;
+  department?: string;
+  medicalRecordId?: string;
+};
+
+/** 保存第 1 步临床数据 / 病历输入字段 */
+export function saveClinicalFields(fields: ClinicalFieldInput): PetCtInterviewRecord {
   const base = getWorkflowCase();
   const updated: PetCtInterviewRecord = {
     ...base,
+    patient_base_info: {
+      ...base.patient_base_info,
+      ...(fields.age !== undefined ? { age: fields.age } : {}),
+      ...(fields.gender !== undefined ? { gender: fields.gender } : {}),
+      ...(fields.department !== undefined ? { department: fields.department } : {}),
+      ...(fields.medicalRecordId !== undefined ? { medical_record_id: fields.medicalRecordId } : {}),
+    },
     interview_info: {
       ...base.interview_info,
-      clinical_diagnosis: clinicalDiagnosis,
-      nodule_diagnosis: clinicalDiagnosis,
+      ...(fields.clinicalDiagnosis !== undefined
+        ? {
+            clinical_diagnosis: fields.clinicalDiagnosis,
+            nodule_diagnosis: fields.clinicalDiagnosis,
+          }
+        : {}),
+      ...(fields.briefMedicalHistory !== undefined
+        ? { brief_medical_history: fields.briefMedicalHistory }
+        : {}),
     },
     research_extensions: {
       ...base.research_extensions,
-      primary_disease_name: clinicalDiagnosis,
+      ...(fields.clinicalDiagnosis !== undefined
+        ? { primary_disease_name: fields.clinicalDiagnosis }
+        : {}),
+      ...(fields.medicalRecordId !== undefined
+        ? { patient_internal_id: fields.medicalRecordId || base.research_extensions?.patient_internal_id }
+        : {}),
     },
   };
   saveWorkflowCase(updated);
+  return updated;
 }
 
 /** 将第 1 步解析成功的 DICOM/JSON 病例与临床诊断合并 */
 export function mergeIngestedCase(parsed: Record<string, unknown>, clinicalDiagnosis: string): PetCtInterviewRecord {
-  const base = buildPathologyBaseCase(clinicalDiagnosis);
+  const base = getWorkflowCase();
   const pbi = (parsed.patient_base_info as Record<string, unknown>) || {};
   const iv = (parsed.interview_info as Record<string, unknown>) || {};
   const rx = (parsed.research_extensions as Record<string, unknown>) || {};
@@ -90,6 +124,10 @@ export function mergeIngestedCase(parsed: Record<string, unknown>, clinicalDiagn
       ...base.interview_info,
       ...(iv as PetCtInterviewRecord["interview_info"]),
       clinical_diagnosis: clinicalDiagnosis || (iv.clinical_diagnosis as string) || base.interview_info.clinical_diagnosis,
+      brief_medical_history:
+        base.interview_info.brief_medical_history ||
+        (iv.brief_medical_history as string) ||
+        "",
     },
     research_extensions: {
       ...base.research_extensions,
@@ -103,7 +141,7 @@ export function mergeIngestedCase(parsed: Record<string, unknown>, clinicalDiagn
             imaging_report_text: "",
             lesions: [],
             global_quant: { suv_max: null, suv_mean: null, mtv: null, tlg: null },
-            pet_ct_phenotype_tags: [],
+            pet_ct_phenotype_tags: base.research_extensions?.pet_ct_phenotype_tags || [],
           }),
     },
   };

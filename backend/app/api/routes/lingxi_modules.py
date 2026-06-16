@@ -257,7 +257,7 @@ def module_training_export(db: Session = Depends(get_db)) -> dict:
 
 @router.post("/training/run")
 def module_training_run(db: Session = Depends(get_db)) -> dict:
-    """训练病理分级 RandomForest 模型并保存到 models/。"""
+    """训练病理分级 XGBoost 模型并保存到 models/。"""
     try:
         return train_pathology_classifier(db)
     except ValueError as e:

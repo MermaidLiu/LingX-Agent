@@ -83,7 +83,7 @@ npm run dev
 
 ### 入口
 
-**病历输入 → 模型训练** 标签页，或命令行 `python -m ml.train_pathology`。
+**病历输入 → 模型训练** 标签页，或命令行 `python3 -m ml.train_pathology`（需先 `cd backend`）。
 
 ### 病理分级怎么训？
 
@@ -104,19 +104,40 @@ npm run dev
 
 - **未上传影像**：模型仅使用临床特征（年龄、性别、身高体重等）
 - **已上传影像**：自动加入 SUVmax、MTV、TLG、病灶数等影像特征
-- **纯影像深度学习**（CNN）：当前为表格特征 + RandomForest；如需 CT/MRI 端到端分类，需在 `ml/` 扩展并自备标注 DICOM
+- **纯影像深度学习**（CNN）：当前为表格特征 + XGBoost；如需 CT/MRI 端到端分类，需在 `ml/` 扩展并自备标注 DICOM
 
 ### 命令行
 
 ```bash
 cd backend
-pip install pandas scikit-learn joblib
-python -m ml.train_pathology export
-python -m ml.train_pathology train
-python -m ml.train_pathology status
+# macOS 请用 python3；若已 source ../.venv/bin/activate 则可用 python
+pip3 install -r requirements.txt \
+  -i https://pypi.tuna.tsinghua.edu.cn/simple \
+  --trusted-host pypi.tuna.tsinghua.edu.cn
+python3 -m ml.train_pathology export
+python3 -m ml.train_pathology train
+python3 -m ml.train_pathology status
 ```
 
 训练完成后，**诊断结果** 模块将优先使用 `models/pathology_grade_classifier.joblib` 预测病理分级。
+
+### pip 安装失败（SSL / 连不上 PyPI）
+
+若出现 `SSLError` 或 `No matching distribution found for xgboost`，改用国内镜像：
+
+```bash
+pip3 install -r requirements.txt \
+  -i https://pypi.tuna.tsinghua.edu.cn/simple \
+  --trusted-host pypi.tuna.tsinghua.edu.cn
+```
+
+仅装 XGBoost：
+
+```bash
+pip3 install xgboost \
+  -i https://pypi.tuna.tsinghua.edu.cn/simple \
+  --trusted-host pypi.tuna.tsinghua.edu.cn
+```
 
 ## 技术栈
 

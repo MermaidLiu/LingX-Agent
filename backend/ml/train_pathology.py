@@ -2,9 +2,9 @@
 """CLI：导出训练集并训练病理分级模型。
 
 用法（在 backend 目录下）：
-  python -m ml.train_pathology export
-  python -m ml.train_pathology train
-  python -m ml.train_pathology status
+  python3 -m ml.train_pathology export
+  python3 -m ml.train_pathology train
+  python3 -m ml.train_pathology status
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="PMP Agent 病理分级模型训练")
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("export", help="从数据库导出 CSV")
-    sub.add_parser("train", help="训练 RandomForest 分类器")
+    sub.add_parser("train", help="训练 XGBoost 分类器")
     sub.add_parser("status", help="查看训练状态")
     args = parser.parse_args()
 
