@@ -4,7 +4,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
-import "./styles/glass-theme.css";
+import "./styles/platform-theme.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -13,31 +13,27 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       theme={{
         algorithm: theme.defaultAlgorithm,
         token: {
-          colorPrimary: "#2a95c7",
-          borderRadius: 10,
-          borderRadiusLG: 16,
-          colorBgContainer: "rgba(255,255,255,0.4)",
-          colorBgElevated: "rgba(255,255,255,0.65)",
-          colorBorder: "rgba(180, 220, 245, 0.85)",
-          colorText: "#164a63",
-          colorTextSecondary: "#3d6f8a",
-          colorSplit: "rgba(180, 220, 245, 0.55)",
+          colorPrimary: "#1677ff",
+          borderRadius: 8,
+          borderRadiusLG: 12,
+          colorBgContainer: "#ffffff",
+          colorBgElevated: "#ffffff",
+          colorBorder: "#e8edf5",
+          colorText: "#1f2937",
+          colorTextSecondary: "#6b7280",
+          colorSplit: "#e8edf5",
+          fontFamily:
+            '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif',
         },
         components: {
-          Button: {
-            primaryShadow: "0 4px 14px rgba(42, 149, 199, 0.28)",
-          },
-          Card: {
-            colorBgContainer: "transparent",
-            colorBorderSecondary: "rgba(255,255,255,0.5)",
-          },
           Layout: {
-            bodyBg: "transparent",
-            headerBg: "transparent",
-            headerHeight: 64,
+            bodyBg: "#eef2f8",
+            headerBg: "#ffffff",
+            siderBg: "#0b1f4a",
           },
           Menu: {
             darkItemBg: "transparent",
+            darkItemSelectedBg: "rgba(22, 119, 255, 0.22)",
           },
         },
       }}

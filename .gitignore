@@ -8,7 +8,7 @@ node_modules/
 dist/
 .DS_Store
 models/*.pth
-data/
+/data/
 *.log
 .cursor/
 agent-transcripts/
