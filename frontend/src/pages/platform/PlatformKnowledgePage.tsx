@@ -1,6 +1,11 @@
 import { LineChartOutlined } from "@ant-design/icons";
 import { App, Button, Col, Progress, Row, Select, Space, Table, Tabs, Tag, Typography } from "antd";
 import { useMemo, useState } from "react";
+import AnalysisIntentPanel, { type AnalysisIntent } from "../../components/platform/AnalysisIntentPanel";
+import PlatformResearchChartsPage from "./PlatformResearchChartsPage";
+import PlatformResearchPptPage from "./PlatformResearchPptPage";
+import PlatformResearchReviewPage from "./PlatformResearchReviewPage";
+import PlatformResearchStatsPage from "./PlatformResearchStatsPage";
 import {
   MOCK_CORRELATIONS,
   MOCK_PROGNOSIS_MODEL,
@@ -252,54 +257,101 @@ function PrognosisModelTab() {
 
 export default function PlatformKnowledgePage() {
   const { message } = App.useApp();
+  const [intent, setIntent] = useState<AnalysisIntent>({
+    question: "探索病理分级与 SUVmax、Ki-67 的相关性，并构建 PMP 预后模型",
+    variables: "病理分级、SUVmax、Ki-67、PMCA/DPAM、年龄",
+    outcome: "os",
+    notes: "需要生存分析与 Cox 回归结果，用于论文图表",
+  });
 
   return (
     <div className="pmp-section">
       <Title level={4} style={{ marginBottom: 16 }}>
         <LineChartOutlined style={{ marginRight: 8, color: "#1677ff" }} />
-        知识延伸分析
+        科研延伸分析
       </Title>
+
+      <AnalysisIntentPanel value={intent} onChange={setIntent} />
+
       <div className="pmp-card" style={{ padding: 16 }}>
         <Tabs
           items={[
             {
-              key: "corr",
-              label: "相关性分析",
+              key: "knowledge",
+              label: "知识延伸",
               children: (
-                <Table
+                <Tabs
                   size="small"
-                  pagination={false}
-                  rowKey="factor"
-                  dataSource={MOCK_CORRELATIONS}
-                  columns={[
-                    { title: "因素", dataIndex: "factor" },
-                    { title: "相关系数 r", dataIndex: "r", render: (v: number) => v.toFixed(2) },
-                    { title: "P 值", dataIndex: "p", render: (v: number) => v.toFixed(3) },
-                    { title: "显著性", dataIndex: "sig" },
+                  items={[
+                    {
+                      key: "corr",
+                      label: "相关性",
+                      children: (
+                        <Table
+                          size="small"
+                          pagination={false}
+                          rowKey="factor"
+                          dataSource={MOCK_CORRELATIONS}
+                          columns={[
+                            { title: "因素", dataIndex: "factor" },
+                            { title: "相关系数 r", dataIndex: "r", render: (v: number) => v.toFixed(2) },
+                            { title: "P 值", dataIndex: "p", render: (v: number) => v.toFixed(3) },
+                            { title: "显著性", dataIndex: "sig" },
+                          ]}
+                        />
+                      ),
+                    },
+                    { key: "survival", label: "生存分析", children: <SurvivalTab /> },
+                    { key: "subgroup", label: "亚组分析", children: <SubgroupTab /> },
+                    { key: "model", label: "预后模型", children: <PrognosisModelTab /> },
                   ]}
                 />
               ),
             },
             {
-              key: "survival",
-              label: "生存分析",
-              children: <SurvivalTab />,
+              key: "stats",
+              label: "统计分析",
+              children: (
+                <div className="pmp-research-tab-embed">
+                  <PlatformResearchStatsPage />
+                </div>
+              ),
             },
             {
-              key: "subgroup",
-              label: "亚组分析",
-              children: <SubgroupTab />,
+              key: "charts",
+              label: "图表生成",
+              children: (
+                <div className="pmp-research-tab-embed">
+                  <PlatformResearchChartsPage />
+                </div>
+              ),
             },
             {
-              key: "model",
-              label: "预后模型",
-              children: <PrognosisModelTab />,
+              key: "review",
+              label: "综述生成",
+              children: (
+                <div className="pmp-research-tab-embed">
+                  <PlatformResearchReviewPage />
+                </div>
+              ),
+            },
+            {
+              key: "ppt",
+              label: "PPT 生成",
+              children: (
+                <div className="pmp-research-tab-embed">
+                  <PlatformResearchPptPage />
+                </div>
+              ),
             },
           ]}
         />
         <div style={{ marginTop: 12, textAlign: "right" }}>
-          <Button type="link" onClick={() => message.info("可导出至科研工具 · 统计分析（演示）")}>
-            导出至统计分析 →
+          <Button
+            type="primary"
+            onClick={() => message.success(`已按需求运行分析：${intent.question.slice(0, 40)}…（演示）`)}
+          >
+            运行分析
           </Button>
         </div>
       </div>

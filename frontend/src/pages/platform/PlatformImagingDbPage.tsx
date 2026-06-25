@@ -1,5 +1,5 @@
-import { CloudUploadOutlined, FileImageOutlined } from "@ant-design/icons";
-import { App, Button, Descriptions, Drawer, Typography } from "antd";
+import { FileImageOutlined } from "@ant-design/icons";
+import { Button, Descriptions, Drawer, Typography } from "antd";
 import { useMemo, useState } from "react";
 import { DatabasePageShell, DbTitle, StatusTag } from "../../components/platform/DatabasePageShell";
 import { MOCK_IMAGING_DB, type ImagingRecord } from "../../data/databaseMock";
@@ -7,20 +7,12 @@ import { MOCK_IMAGING_DB, type ImagingRecord } from "../../data/databaseMock";
 const { Text } = Typography;
 
 export default function PlatformImagingDbPage() {
-  const { message } = App.useApp();
   const [detail, setDetail] = useState<ImagingRecord | null>(null);
 
   const stats = useMemo(() => {
-    const pet = MOCK_IMAGING_DB.filter((r) => r.hasPet);
-    const avgSuv =
-      pet.length > 0
-        ? (pet.reduce((s, r) => s + (r.suvMax || 0), 0) / pet.length).toFixed(1)
-        : "—";
     return [
       { title: "影像总数", value: MOCK_IMAGING_DB.length, suffix: "例" },
-      { title: "PET-CT", value: pet.length, suffix: "例", color: "#1677ff" },
       { title: "DICOM 总量", value: MOCK_IMAGING_DB.reduce((s, r) => s + r.dicomCount, 0), suffix: "张" },
-      { title: "平均 SUVmax", value: avgSuv, suffix: pet.length ? "" : undefined, color: "#cf1322" },
     ];
   }, []);
 
@@ -34,9 +26,9 @@ export default function PlatformImagingDbPage() {
           </DbTitle>
         }
         extra={
-          <Button type="primary" icon={<CloudUploadOutlined />} onClick={() => message.info("上传 DICOM（演示）")}>
-            上传影像
-          </Button>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            智能分析完成后自动入库
+          </Typography.Text>
         }
         stats={stats}
         data={MOCK_IMAGING_DB}

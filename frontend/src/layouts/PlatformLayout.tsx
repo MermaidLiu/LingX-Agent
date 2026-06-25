@@ -3,7 +3,6 @@ import {
   BarChartOutlined,
   DatabaseOutlined,
   ExperimentOutlined,
-  LineChartOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MessageOutlined,
@@ -25,20 +24,10 @@ type MenuItem = {
   children?: MenuItem[];
 };
 
+/** 流程：工作台 → 智能对话 → 智能分析 → 数据库 → 科研延伸 */
 const MENU: MenuItem[] = [
   { key: "/workflow", icon: <ApartmentOutlined />, label: "工作台", path: "/workflow" },
   { key: "/", icon: <MessageOutlined />, label: "智能对话", path: "/" },
-  {
-    key: "db",
-    icon: <DatabaseOutlined />,
-    label: "数据库",
-    children: [
-      { key: "/db/patients", label: "患者数据库", path: "/db/patients" },
-      { key: "/db/imaging", label: "影像数据库", path: "/db/imaging" },
-      { key: "/db/pathology", label: "病理数据库", path: "/db/pathology" },
-      { key: "/db/genetics", label: "基因数据库", path: "/db/genetics" },
-    ],
-  },
   {
     key: "analysis",
     icon: <ExperimentOutlined />,
@@ -51,21 +40,19 @@ const MENU: MenuItem[] = [
     ],
   },
   {
-    key: "knowledge",
-    icon: <LineChartOutlined />,
-    label: "知识延伸分析",
-    path: "/knowledge",
+    key: "db",
+    icon: <DatabaseOutlined />,
+    label: "数据库",
+    children: [
+      { key: "/db/patients", label: "患者数据库", path: "/db/patients" },
+      { key: "/db/imaging", label: "影像数据库", path: "/db/imaging" },
+    ],
   },
   {
-    key: "research",
+    key: "/knowledge",
     icon: <BarChartOutlined />,
-    label: "科研工具",
-    children: [
-      { key: "/research/stats", label: "统计分析", path: "/research/stats" },
-      { key: "/research/charts", label: "图表生成", path: "/research/charts" },
-      { key: "/research/review", label: "综述生成", path: "/research/review" },
-      { key: "/research/ppt", label: "PPT 生成", path: "/research/ppt" },
-    ],
+    label: "科研延伸",
+    path: "/knowledge",
   },
   { key: "/settings", icon: <SettingOutlined />, label: "系统设置", path: "/settings" },
 ];
@@ -77,13 +64,13 @@ function flattenPaths(items: MenuItem[]): string[] {
 function selectedKey(pathname: string): string {
   const paths = flattenPaths(MENU).sort((a, b) => b.length - a.length);
   const hit = paths.find((p) => p === pathname || (p !== "/" && pathname.startsWith(p)));
+  if (pathname.startsWith("/research")) return "/knowledge";
   return hit || (pathname === "/" ? "/" : "/workflow");
 }
 
 function openKeysFor(pathname: string): string[] {
   if (pathname.startsWith("/db")) return ["db"];
   if (pathname.startsWith("/analysis")) return ["analysis"];
-  if (pathname.startsWith("/research")) return ["research"];
   return [];
 }
 
@@ -112,19 +99,14 @@ export default function PlatformLayout() {
       "/workflow": "PMP 智能平台 · 工作台",
       "/db/patients": "患者数据库",
       "/db/imaging": "影像数据库",
-      "/db/pathology": "病理数据库",
-      "/db/genetics": "基因数据库",
-      "/knowledge": "知识延伸分析",
+      "/knowledge": "科研延伸分析",
       "/analysis/diagnosis": "诊断分析",
       "/analysis/treatment": "治疗建议",
       "/analysis/prognosis": "预后预测",
       "/analysis/cohort": "队列分析",
-      "/research/stats": "统计分析",
-      "/research/charts": "图表生成",
-      "/research/review": "综述生成",
-      "/research/ppt": "PPT 生成",
       "/settings": "系统设置",
     };
+    if (loc.pathname.startsWith("/research")) return "科研延伸分析";
     return map[loc.pathname] || "PMP 智能医疗平台";
   }, [loc.pathname]);
 
@@ -180,7 +162,7 @@ export default function PlatformLayout() {
             <span className="pmp-tag-blue">Beta</span>
           </Space>
           <Space size={20}>
-            <Input.Search placeholder="搜索患者、病例、影像、报告、文献…" style={{ width: 320 }} allowClear />
+            <Input.Search placeholder="搜索患者、病例、报告…" style={{ width: 320 }} allowClear />
             <Badge count={12} size="small">
               <RobotOutlined style={{ fontSize: 18, color: "#6b7280" }} />
             </Badge>

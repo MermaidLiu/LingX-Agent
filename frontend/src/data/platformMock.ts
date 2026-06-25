@@ -213,9 +213,8 @@ export const MOCK_RESEARCH_IDEAS = [
 ];
 
 export const WORKFLOW_STEPS = [
-  { key: "input", label: "① 多模态数据输入" },
-  { key: "diagnosis", label: "② 智能诊断与治疗建议" },
-  { key: "database", label: "③ PMP 数据库" },
-  { key: "knowledge", label: "④ 知识延伸分析" },
-  { key: "research", label: "⑤ 科研支持与输出" },
+  { key: "input", label: "① 智能对话 · 上传分析" },
+  { key: "diagnosis", label: "② 智能分析" },
+  { key: "database", label: "③ 加入数据库" },
+  { key: "research", label: "④ 科研延伸" },
 ];

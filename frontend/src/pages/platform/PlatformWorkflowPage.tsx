@@ -1,12 +1,4 @@
-import {
-  ExperimentOutlined,
-  FileImageOutlined,
-  FilePdfOutlined,
-  FileTextOutlined,
-  LineChartOutlined,
-  ReadOutlined,
-  UploadOutlined,
-} from "@ant-design/icons";
+import { ExperimentOutlined, UploadOutlined } from "@ant-design/icons";
 import {
   App,
   Button,
@@ -21,11 +13,11 @@ import {
   Typography,
 } from "antd";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import {
   MOCK_CORRELATIONS,
   MOCK_DIAGNOSIS,
   MOCK_PATIENTS,
-  MOCK_RESEARCH_IDEAS,
   WORKFLOW_STEPS,
 } from "../../data/platformMock";
 
@@ -57,105 +49,46 @@ export default function PlatformWorkflowPage() {
         ))}
       </div>
 
-      {/* ① 多模态数据输入 */}
+      {/* ① 智能对话 · 上传分析 */}
       <section id="section-input" className="pmp-section">
         <Title level={4}>
           <span className="pmp-section-num">1</span>
-          多模态数据输入
+          智能对话 · 上传分析
         </Title>
         <Row gutter={[16, 16]}>
           <Col xs={24} lg={14}>
             <div className="pmp-card" style={{ padding: 20 }}>
               <div className="pmp-upload-zone">
                 <UploadOutlined style={{ fontSize: 36, color: "#1677ff", marginBottom: 12 }} />
-                <Paragraph>拖拽或点击上传 DICOM / PDF / JPG / CSV 等文件</Paragraph>
-                <Text type="secondary">支持 CT、MRI、PET-CT、病理切片、检验报告</Text>
+                <Paragraph>上传 Excel · ZIP · PDF · Word，在智能对话中描述分析需求</Paragraph>
+                <Text type="secondary">支持检验表、影像压缩包、病理报告、病历文档</Text>
               </div>
-              <Button type="primary" size="large" block style={{ marginTop: 16 }} icon={<ExperimentOutlined />}>
-                开始智能分析
-              </Button>
+              <Link to="/">
+                <Button type="primary" size="large" block style={{ marginTop: 16 }} icon={<ExperimentOutlined />}>
+                  前往智能对话
+                </Button>
+              </Link>
             </div>
           </Col>
           <Col xs={24} lg={10}>
-            <div className="pmp-card" style={{ padding: 16, marginBottom: 12 }}>
-              <div className="pmp-panel-title">影像数据</div>
-              <Space wrap>
-                {["CT 05-18", "MRI 05-16", "PET-CT 05-15", "超声 05-10"].map((t) => (
-                  <div key={t} className="pmp-data-thumb">
-                    <FileImageOutlined style={{ fontSize: 22, color: "#1677ff" }} />
-                    {t}
-                  </div>
-                ))}
-              </Space>
-            </div>
-            <div className="pmp-card" style={{ padding: 16, marginBottom: 12 }}>
-              <div className="pmp-panel-title">病理数据</div>
-              <Space wrap>
-                {["HE 染色", "Ki-67", "P53"].map((t) => (
-                  <div key={t} className="pmp-data-thumb">
-                    <span style={{ fontSize: 20 }}>🔬</span>
-                    {t}
-                  </div>
-                ))}
-              </Space>
-            </div>
             <div className="pmp-card" style={{ padding: 16 }}>
-              <div className="pmp-panel-title">检验数据</div>
-              <Space wrap>
-                {["血常规", "生化", "肿瘤标志物", "基因检测"].map((t) => (
-                  <div key={t} className="pmp-data-thumb">
-                    <FilePdfOutlined style={{ fontSize: 20, color: "#1677ff" }} />
-                    {t}
-                  </div>
-                ))}
-              </Space>
+              <div className="pmp-panel-title">分析需求（可编辑）</div>
+              <Input.TextArea
+                rows={4}
+                defaultValue="请基于上传数据给出 PMP 诊断、分级与治疗建议"
+                style={{ marginBottom: 12 }}
+              />
+              <Input.TextArea rows={2} placeholder="关注变量：病理分级、SUVmax、Ki-67…" />
             </div>
           </Col>
         </Row>
-
-        <div className="pmp-card" style={{ padding: 16, marginTop: 16 }}>
-          <div className="pmp-panel-title">临床数据 / 病历输入</div>
-          <Row gutter={16}>
-            <Col xs={24} md={6}>
-              <Text type="secondary">姓名</Text>
-              <Input defaultValue={patient.name} style={{ marginTop: 4 }} />
-            </Col>
-            <Col xs={24} md={4}>
-              <Text type="secondary">性别</Text>
-              <Input defaultValue={patient.gender} style={{ marginTop: 4 }} />
-            </Col>
-            <Col xs={24} md={4}>
-              <Text type="secondary">年龄</Text>
-              <Input defaultValue={String(patient.age)} style={{ marginTop: 4 }} />
-            </Col>
-            <Col xs={24} md={10}>
-              <Text type="secondary">住院号</Text>
-              <Input defaultValue={patient.admissionId} style={{ marginTop: 4 }} />
-            </Col>
-            <Col xs={24} md={12} style={{ marginTop: 12 }}>
-              <Text type="secondary">临床诊断</Text>
-              <Input.TextArea rows={2} defaultValue={patient.diagnosis} style={{ marginTop: 4 }} />
-            </Col>
-            <Col xs={24} md={12} style={{ marginTop: 12 }}>
-              <Text type="secondary">主诉 / 病史</Text>
-              <Input.TextArea
-                rows={2}
-                defaultValue={`${patient.chiefComplaint}；${patient.pastHistory}`}
-                style={{ marginTop: 4 }}
-              />
-            </Col>
-          </Row>
-          <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0, fontSize: 12 }}>
-            若未上传含 PET 的 DICOM，则不会显示 SUV 等代谢指标。
-          </Paragraph>
-        </div>
       </section>
 
-      {/* ② 智能诊断与治疗建议 */}
+      {/* ② 智能分析 */}
       <section id="section-diagnosis" className="pmp-section" style={{ background: "#f8fafc" }}>
         <Title level={4}>
           <span className="pmp-section-num">2</span>
-          智能诊断与治疗建议
+          智能分析
         </Title>
         <Row gutter={[16, 16]}>
           <Col xs={24} lg={10}>
@@ -255,12 +188,15 @@ export default function PlatformWorkflowPage() {
         </Row>
       </section>
 
-      {/* ③ PMP 数据库 */}
+      {/* ③ 加入数据库 */}
       <section id="section-database" className="pmp-section">
         <Title level={4}>
           <span className="pmp-section-num">3</span>
-          PMP 数据库
+          加入数据库
         </Title>
+        <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+          智能分析完成后，病例与影像数据自动入库，可在数据库中浏览（只读）。
+        </Paragraph>
         <Row gutter={16}>
           <Col xs={24} md={8}>
             <div className="pmp-card" style={{ padding: 16 }}>
@@ -278,10 +214,9 @@ export default function PlatformWorkflowPage() {
               <div className="pmp-panel-title">数据概览</div>
               <div className="pmp-workflow-grid">
                 {[
+                  { label: "患者", count: 128 },
                   { label: "影像", count: 12 },
-                  { label: "病理", count: 3 },
                   { label: "检验", count: 8 },
-                  { label: "基因", count: 1 },
                   { label: "随访", count: 3 },
                 ].map((d) => (
                   <div key={d.label} className="pmp-card" style={{ padding: 16, textAlign: "center" }}>
@@ -290,26 +225,37 @@ export default function PlatformWorkflowPage() {
                   </div>
                 ))}
               </div>
-              <Button type="primary" style={{ marginTop: 16 }}>
-                进入患者档案
-              </Button>
+              <Link to="/db/patients">
+                <Button type="primary" style={{ marginTop: 16 }}>
+                  进入患者数据库
+                </Button>
+              </Link>
             </div>
           </Col>
         </Row>
       </section>
 
-      {/* ④ 知识延伸与分析 */}
-      <section id="section-knowledge" className="pmp-section" style={{ background: "#f8fafc" }}>
+      {/* ④ 科研延伸 */}
+      <section id="section-research" className="pmp-section" style={{ background: "#f8fafc" }}>
         <Title level={4}>
           <span className="pmp-section-num">4</span>
-          知识延伸分析
+          科研延伸
         </Title>
+        <div className="pmp-card" style={{ padding: 16, marginBottom: 16 }}>
+          <div className="pmp-panel-title">分析需求（可编辑）</div>
+          <Input.TextArea
+            rows={2}
+            defaultValue="探索病理分级与 SUVmax 的相关性及预后价值"
+            style={{ marginBottom: 12 }}
+          />
+          <Input.TextArea rows={2} placeholder="关注变量、亚组条件、输出格式…" />
+        </div>
         <div className="pmp-card" style={{ padding: 16 }}>
           <Tabs
             items={[
               {
                 key: "corr",
-                label: "相关性分析",
+                label: "相关性",
                 children: (
                   <Table
                     size="small"
@@ -318,78 +264,24 @@ export default function PlatformWorkflowPage() {
                     dataSource={MOCK_CORRELATIONS}
                     columns={[
                       { title: "因素", dataIndex: "factor" },
-                      { title: "相关系数 r", dataIndex: "r", render: (v: number) => v.toFixed(2) },
-                      { title: "P 值", dataIndex: "p", render: (v: number) => v.toFixed(3) },
+                      { title: "r", dataIndex: "r", render: (v: number) => v.toFixed(2) },
+                      { title: "P", dataIndex: "p", render: (v: number) => v.toFixed(3) },
                       { title: "显著性", dataIndex: "sig" },
                     ]}
                   />
                 ),
               },
-              { key: "survival", label: "生存分析", children: <Text type="secondary">Kaplan-Meier 曲线（演示）</Text> },
-              { key: "subgroup", label: "亚组分析", children: <Text type="secondary">亚组森林图（演示）</Text> },
-              { key: "model", label: "预后模型", children: <Text type="secondary">Cox 多因素回归（演示）</Text> },
+              { key: "survival", label: "生存分析", children: <Text type="secondary">Kaplan-Meier · 见科研延伸页</Text> },
+              { key: "stats", label: "统计分析", children: <Text type="secondary">Cox / 组间比较 · 见科研延伸页</Text> },
+              { key: "ppt", label: "PPT", children: <Text type="secondary">一键生成汇报 · 见科研延伸页</Text> },
             ]}
           />
+          <Link to="/knowledge">
+            <Button type="link" style={{ marginTop: 8, padding: 0 }}>
+              进入科研延伸 →
+            </Button>
+          </Link>
         </div>
-      </section>
-
-      {/* ⑤ 科研支持与输出 */}
-      <section id="section-research" className="pmp-section">
-        <Title level={4}>
-          <span className="pmp-section-num">5</span>
-          科研支持与输出
-        </Title>
-        <Row gutter={[16, 16]}>
-          <Col xs={24} md={12}>
-            <div className="pmp-card" style={{ padding: 16 }}>
-              <div className="pmp-panel-title">
-                <ReadOutlined /> AI 科研选题
-              </div>
-              <ul style={{ paddingLeft: 20, lineHeight: 1.9 }}>
-                {MOCK_RESEARCH_IDEAS.map((idea) => (
-                  <li key={idea}>{idea}</li>
-                ))}
-              </ul>
-            </div>
-          </Col>
-          <Col xs={24} md={12}>
-            <div className="pmp-card" style={{ padding: 16 }}>
-              <div className="pmp-panel-title">
-                <LineChartOutlined /> 统计结果
-              </div>
-              <div
-                style={{
-                  height: 120,
-                  background: "linear-gradient(180deg,#eff6ff,#fff)",
-                  borderRadius: 8,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "#6b7280",
-                }}
-              >
-                Kaplan-Meier 生存曲线（演示）
-              </div>
-            </div>
-          </Col>
-          <Col xs={24} md={12}>
-            <div className="pmp-card" style={{ padding: 16 }}>
-              <div className="pmp-panel-title">文献助手</div>
-              <Paragraph type="secondary">最新相关文献 3 篇（演示）</Paragraph>
-            </div>
-          </Col>
-          <Col xs={24} md={12}>
-            <div className="pmp-card" style={{ padding: 16 }}>
-              <div className="pmp-panel-title">
-                <FileTextOutlined /> PPT 生成
-              </div>
-              <Paragraph type="secondary">已生成 12 页幻灯片预览（演示）</Paragraph>
-              <Button type="primary" icon={<FilePdfOutlined />}>
-                生成完整 PPT
-              </Button>
-            </div>
-          </Col>
-        </Row>
       </section>
     </div>
   );
