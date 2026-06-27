@@ -1,4 +1,4 @@
-import { Input, Select, Space, Typography } from "antd";
+import { Button, Input, Select, Space, Typography } from "antd";
 
 const { Text } = Typography;
 
@@ -13,16 +13,22 @@ type Props = {
   value: AnalysisIntent;
   onChange: (next: AnalysisIntent) => void;
   compact?: boolean;
+  onRun?: () => void;
+  running?: boolean;
 };
 
-export default function AnalysisIntentPanel({ value, onChange, compact }: Props) {
+export default function AnalysisIntentPanel({ value, onChange, compact, onRun, running }: Props) {
   function patch(partial: Partial<AnalysisIntent>) {
     onChange({ ...value, ...partial });
   }
 
   return (
     <div className="pmp-card" style={{ padding: compact ? 12 : 16, marginBottom: 16 }}>
-      <div className="pmp-panel-title">分析需求（可编辑）</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div className="pmp-panel-title" style={{ margin: 0 }}>
+          分析需求（可编辑）
+        </div>
+      </div>
       <Space direction="vertical" style={{ width: "100%" }} size={compact ? 8 : 12}>
         <div>
           <Text type="secondary" style={{ fontSize: 12 }}>
@@ -83,6 +89,13 @@ export default function AnalysisIntentPanel({ value, onChange, compact }: Props)
             style={{ marginTop: 4 }}
           />
         </div>
+        {!compact && onRun ? (
+          <div style={{ textAlign: "right" }}>
+            <Button type="primary" size="large" loading={running} onClick={onRun}>
+              运行分析
+            </Button>
+          </div>
+        ) : null}
       </Space>
     </div>
   );

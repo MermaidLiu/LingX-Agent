@@ -28,17 +28,7 @@ type MenuItem = {
 const MENU: MenuItem[] = [
   { key: "/workflow", icon: <ApartmentOutlined />, label: "工作台", path: "/workflow" },
   { key: "/", icon: <MessageOutlined />, label: "智能对话", path: "/" },
-  {
-    key: "analysis",
-    icon: <ExperimentOutlined />,
-    label: "智能分析",
-    children: [
-      { key: "/analysis/diagnosis", label: "诊断分析", path: "/analysis/diagnosis" },
-      { key: "/analysis/treatment", label: "治疗建议", path: "/analysis/treatment" },
-      { key: "/analysis/prognosis", label: "预后预测", path: "/analysis/prognosis" },
-      { key: "/analysis/cohort", label: "队列分析", path: "/analysis/cohort" },
-    ],
-  },
+  { key: "/analysis", icon: <ExperimentOutlined />, label: "智能分析", path: "/analysis" },
   {
     key: "db",
     icon: <DatabaseOutlined />,
@@ -65,12 +55,13 @@ function selectedKey(pathname: string): string {
   const paths = flattenPaths(MENU).sort((a, b) => b.length - a.length);
   const hit = paths.find((p) => p === pathname || (p !== "/" && pathname.startsWith(p)));
   if (pathname.startsWith("/research")) return "/knowledge";
+  if (pathname.startsWith("/knowledge")) return "/knowledge";
+  if (pathname.startsWith("/analysis")) return "/analysis";
   return hit || (pathname === "/" ? "/" : "/workflow");
 }
 
 function openKeysFor(pathname: string): string[] {
   if (pathname.startsWith("/db")) return ["db"];
-  if (pathname.startsWith("/analysis")) return ["analysis"];
   return [];
 }
 
@@ -99,14 +90,19 @@ export default function PlatformLayout() {
       "/workflow": "PMP 智能平台 · 工作台",
       "/db/patients": "患者数据库",
       "/db/imaging": "影像数据库",
-      "/knowledge": "科研延伸分析",
+      "/knowledge": "科研延伸",
+      "/knowledge/data": "数据分析",
+      "/knowledge/library": "知识库",
+      "/analysis": "诊断分析",
       "/analysis/diagnosis": "诊断分析",
-      "/analysis/treatment": "治疗建议",
-      "/analysis/prognosis": "预后预测",
-      "/analysis/cohort": "队列分析",
       "/settings": "系统设置",
     };
-    if (loc.pathname.startsWith("/research")) return "科研延伸分析";
+    if (loc.pathname.startsWith("/research")) return "科研延伸";
+    if (loc.pathname.startsWith("/knowledge/data/clinical")) return "临床及病理数据分析";
+    if (loc.pathname.startsWith("/knowledge/data/imaging")) return "影像数据智能分析";
+    if (loc.pathname.startsWith("/knowledge/data/multimodal")) return "多模态联合分析";
+    if (loc.pathname.startsWith("/knowledge/data")) return "数据分析";
+    if (loc.pathname.startsWith("/knowledge/library")) return "知识库";
     return map[loc.pathname] || "PMP 智能医疗平台";
   }, [loc.pathname]);
 

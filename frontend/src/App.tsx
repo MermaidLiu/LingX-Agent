@@ -3,13 +3,16 @@ import PlatformLayout from "./layouts/PlatformLayout";
 import BasicLayout from "./layouts/BasicLayout";
 import DashboardHome from "./pages/DashboardHome";
 import PlatformChatPage from "./pages/platform/PlatformChatPage";
-import PlatformCohortAnalysisPage from "./pages/platform/PlatformCohortAnalysisPage";
+import PlatformClinicalAnalysisPage from "./pages/platform/PlatformClinicalAnalysisPage";
+import PlatformDiagnosisPage from "./pages/platform/PlatformDiagnosisPage";
+import PlatformImagingAnalysisPage from "./pages/platform/PlatformImagingAnalysisPage";
 import PlatformImagingDbPage from "./pages/platform/PlatformImagingDbPage";
-import PlatformKnowledgePage from "./pages/platform/PlatformKnowledgePage";
+import PlatformKnowledgeLibraryPage from "./pages/platform/PlatformKnowledgeLibraryPage";
+import PlatformMultimodalAnalysisPage from "./pages/platform/PlatformMultimodalAnalysisPage";
 import PlatformPatientDbPage from "./pages/platform/PlatformPatientDbPage";
 import PlatformPlaceholderPage from "./pages/platform/PlatformPlaceholderPage";
-import PlatformPrognosisPage from "./pages/platform/PlatformPrognosisPage";
-import PlatformTreatmentPage from "./pages/platform/PlatformTreatmentPage";
+import PlatformResearchDataHubPage from "./pages/platform/PlatformResearchDataHubPage";
+import PlatformResearchExtensionPage from "./pages/platform/PlatformResearchExtensionPage";
 import PlatformWorkflowPage from "./pages/platform/PlatformWorkflowPage";
 
 /** 旧版模块入口（保留兼容，不在主导航展示） */
@@ -30,16 +33,22 @@ export default function App() {
         <Route path="db/imaging" element={<PlatformImagingDbPage />} />
         <Route path="db/pathology" element={<Navigate to="/db/patients" replace />} />
         <Route path="db/genetics" element={<Navigate to="/db/patients" replace />} />
-        <Route path="db/literature" element={<Navigate to="/knowledge" replace />} />
-        <Route path="analysis/diagnosis" element={<PlatformWorkflowPage />} />
-        <Route path="analysis/treatment" element={<PlatformTreatmentPage />} />
-        <Route path="analysis/prognosis" element={<PlatformPrognosisPage />} />
-        <Route path="analysis/cohort" element={<PlatformCohortAnalysisPage />} />
-        <Route path="knowledge" element={<PlatformKnowledgePage />} />
-        <Route path="research/stats" element={<Navigate to="/knowledge" replace />} />
-        <Route path="research/charts" element={<Navigate to="/knowledge" replace />} />
-        <Route path="research/review" element={<Navigate to="/knowledge" replace />} />
-        <Route path="research/ppt" element={<Navigate to="/knowledge" replace />} />
+        <Route path="db/literature" element={<Navigate to="/knowledge/library" replace />} />
+        <Route path="analysis" element={<PlatformDiagnosisPage />} />
+        <Route path="analysis/diagnosis" element={<PlatformDiagnosisPage />} />
+        <Route path="analysis/treatment" element={<Navigate to="/analysis" replace />} />
+        <Route path="analysis/prognosis" element={<Navigate to="/analysis" replace />} />
+        <Route path="analysis/cohort" element={<Navigate to="/db/patients" replace />} />
+        <Route path="knowledge" element={<PlatformResearchExtensionPage />} />
+        <Route path="knowledge/data" element={<PlatformResearchDataHubPage />} />
+        <Route path="knowledge/data/clinical" element={<PlatformClinicalAnalysisPage />} />
+        <Route path="knowledge/data/imaging" element={<PlatformImagingAnalysisPage />} />
+        <Route path="knowledge/data/multimodal" element={<PlatformMultimodalAnalysisPage />} />
+        <Route path="knowledge/library" element={<PlatformKnowledgeLibraryPage />} />
+        <Route path="research/stats" element={<Navigate to="/knowledge/library" replace />} />
+        <Route path="research/charts" element={<Navigate to="/knowledge/library" replace />} />
+        <Route path="research/review" element={<Navigate to="/knowledge/library" replace />} />
+        <Route path="research/ppt" element={<Navigate to="/knowledge/library" replace />} />
         <Route path="settings" element={<PlatformPlaceholderPage />} />
       </Route>
 

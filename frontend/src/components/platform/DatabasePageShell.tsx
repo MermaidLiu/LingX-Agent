@@ -14,6 +14,7 @@ type Props<T> = {
   filterFn: (row: T, keyword: string) => boolean;
   modalityOptions?: { value: string; label: string }[];
   modalityFilter?: (row: T, modality: string) => boolean;
+  modalityLabel?: string;
   extra?: ReactNode;
 };
 
@@ -27,6 +28,7 @@ export function DatabasePageShell<T extends object>({
   filterFn,
   modalityOptions,
   modalityFilter,
+  modalityLabel = "模态",
   extra,
 }: Props<T>) {
   const [keyword, setKeyword] = useState("");
@@ -71,12 +73,17 @@ export function DatabasePageShell<T extends object>({
             onChange={(e) => setKeyword(e.target.value)}
           />
           {modalityOptions ? (
-            <Select
-              value={modality}
-              style={{ width: 140 }}
-              options={[{ value: "全部", label: "全部类型" }, ...modalityOptions]}
-              onChange={setModality}
-            />
+            <>
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                {modalityLabel}
+              </Text>
+              <Select
+                value={modality}
+                style={{ width: 148 }}
+                options={[{ value: "全部", label: "全部" }, ...modalityOptions]}
+                onChange={setModality}
+              />
+            </>
           ) : null}
           <Tag>{filtered.length} 条记录</Tag>
         </Space>

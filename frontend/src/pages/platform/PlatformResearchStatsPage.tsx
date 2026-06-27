@@ -1,5 +1,5 @@
 import { BarChartOutlined } from "@ant-design/icons";
-import { App, Button, Col, Row, Select, Space, Table, Tabs, Tag, Typography } from "antd";
+import { App, AutoComplete, Button, Col, Row, Select, Space, Table, Tabs, Tag, Typography } from "antd";
 import { useState } from "react";
 import {
   MOCK_COX_REGRESSION,
@@ -9,52 +9,83 @@ import {
 
 const { Title, Paragraph, Text } = Typography;
 
-export default function PlatformResearchStatsPage() {
+const COHORT_PRESETS = [
+  "PMP 专病库（n=128）",
+  "高级别亚组（n=62）",
+  "低级别亚组（n=66）",
+  "随访队列（n=48）",
+  "2024 年入组病例",
+  "SUVmax ≥ 5 亚组",
+];
+
+type Props = {
+  embedded?: boolean;
+};
+
+export default function PlatformResearchStatsPage({ embedded }: Props) {
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
-  const [cohort, setCohort] = useState("pmp_all");
+  const [cohort, setCohort] = useState("PMP 专病库（n=128）");
+  const [outcome, setOutcome] = useState("grade");
 
   function runAnalysis() {
+    if (!cohort.trim()) {
+      message.warning("请输入或选择队列");
+      return;
+    }
     setLoading(true);
     setTimeout(() => {
       setLoading(false);
-      message.success("统计分析完成（演示）");
+      message.success(`统计分析完成 · 队列：${cohort}（演示）`);
     }, 800);
   }
 
   return (
-    <div className="pmp-section">
-      <Title level={4} style={{ marginBottom: 16 }}>
-        <BarChartOutlined style={{ marginRight: 8, color: "#1677ff" }} />
-        统计分析
-      </Title>
+    <div className={embedded ? "" : "pmp-section"}>
+      {!embedded ? (
+        <Title level={4} style={{ marginBottom: 16 }}>
+          <BarChartOutlined style={{ marginRight: 8, color: "#1677ff" }} />
+          统计分析
+        </Title>
+      ) : null}
 
       <div className="pmp-card" style={{ padding: 16, marginBottom: 16 }}>
-        <Space wrap>
-          <Text type="secondary">队列：</Text>
-          <Select
-            value={cohort}
-            style={{ width: 220 }}
-            onChange={setCohort}
-            options={[
-              { value: "pmp_all", label: "PMP 专病库（n=128）" },
-              { value: "high_grade", label: "高级别亚组（n=62）" },
-              { value: "low_grade", label: "低级别亚组（n=66）" },
-              { value: "followup", label: "随访队列（n=48）" },
-            ]}
-          />
-          <Select
-            defaultValue="grade"
-            style={{ width: 160 }}
-            options={[
-              { value: "grade", label: "结局：病理分级" },
-              { value: "os", label: "结局：总生存 OS" },
-              { value: "pfs", label: "结局：无进展 PFS" },
-            ]}
-          />
-          <Button type="primary" loading={loading} onClick={runAnalysis}>
-            运行分析
-          </Button>
+        <Space wrap align="start">
+          <div>
+            <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+              队列（可输入）
+            </Text>
+            <AutoComplete
+              value={cohort}
+              style={{ width: 260 }}
+              options={COHORT_PRESETS.map((v) => ({ value: v }))}
+              onChange={setCohort}
+              placeholder="选择预设或输入自定义队列"
+              filterOption={(input, option) =>
+                (option?.value as string).toLowerCase().includes(input.toLowerCase())
+              }
+            />
+          </div>
+          <div>
+            <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+              结局
+            </Text>
+            <Select
+              value={outcome}
+              style={{ width: 160 }}
+              onChange={setOutcome}
+              options={[
+                { value: "grade", label: "病理分级" },
+                { value: "os", label: "总生存 OS" },
+                { value: "pfs", label: "无进展 PFS" },
+              ]}
+            />
+          </div>
+          <div style={{ paddingTop: 20 }}>
+            <Button type="primary" loading={loading} onClick={runAnalysis}>
+              运行分析
+            </Button>
+          </div>
         </Space>
       </div>
 

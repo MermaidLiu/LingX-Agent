@@ -1,28 +1,89 @@
 import { DatabaseOutlined, TeamOutlined } from "@ant-design/icons";
-import { App, Button, Input, Space, Table, Tag, Typography } from "antd";
+import { App, AutoComplete, Button, Input, Space, Table, Tag, Typography } from "antd";
 import { useMemo, useState } from "react";
+import { MOCK_COHORT } from "../../data/analysisMock";
 import { MOCK_PATIENTS } from "../../data/platformMock";
 import { loadPatients } from "../../lib/platformPatients";
 
 const { Title, Text } = Typography;
 
+const COHORT_PRESETS = [
+  "全部病例",
+  "PMP 专病库（n=128）",
+  "高级别亚组",
+  "低级别亚组",
+  "随访中队列",
+  "2024 年入组",
+];
+
+type PatientRow = {
+  id: string;
+  name: string;
+  gender: string;
+  age: number;
+  diagnosis: string;
+  stage: string;
+  gradeLabel: string;
+  followUpStatus: string;
+  enrolledAt: string;
+  department: string;
+};
+
+function buildRows(): PatientRow[] {
+  const patients = loadPatients().length ? loadPatients() : MOCK_PATIENTS;
+  const cohortMap = new Map(MOCK_COHORT.map((c) => [c.patientId, c]));
+
+  return patients.map((p) => {
+    const c = cohortMap.get(p.id);
+    return {
+      id: p.id,
+      name: p.name,
+      gender: p.gender,
+      age: p.age,
+      diagnosis: p.diagnosis,
+      stage: p.stage,
+      gradeLabel: c?.gradeLabel ?? "—",
+      followUpStatus: c?.followUpStatus ?? "—",
+      enrolledAt: p.enrolledAt,
+      department: p.department,
+    };
+  });
+}
+
+function matchCohort(row: PatientRow, cohort: string): boolean {
+  const c = cohort.trim();
+  if (!c || c === "全部病例") return true;
+  if (c.includes("高级别")) return row.gradeLabel === "高级别";
+  if (c.includes("低级别")) return row.gradeLabel === "低级别";
+  if (c.includes("随访")) return row.followUpStatus === "随访中";
+  if (c.includes("2024")) return row.enrolledAt.startsWith("2024");
+  if (c.includes("PMP") || c.includes("专病")) return true;
+  return (
+    row.diagnosis.toLowerCase().includes(c.toLowerCase()) ||
+    row.name.includes(c) ||
+    row.id.toLowerCase().includes(c.toLowerCase()) ||
+    row.department.includes(c)
+  );
+}
+
 export default function PlatformPatientDbPage() {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState("");
-  const patients = useMemo(() => loadPatients(), []);
-
-  const rows = patients.length ? patients : MOCK_PATIENTS;
+  const [cohort, setCohort] = useState("全部病例");
+  const rows = useMemo(() => buildRows(), []);
 
   const filtered = useMemo(() => {
     const k = keyword.trim().toLowerCase();
-    if (!k) return rows;
-    return rows.filter(
-      (p) =>
+    return rows.filter((p) => {
+      if (!matchCohort(p, cohort)) return false;
+      if (!k) return true;
+      return (
         p.id.toLowerCase().includes(k) ||
         p.name.toLowerCase().includes(k) ||
-        p.diagnosis.toLowerCase().includes(k),
-    );
-  }, [rows, keyword]);
+        p.diagnosis.toLowerCase().includes(k)
+      );
+    });
+  }, [rows, keyword, cohort]);
 
   return (
     <div className="pmp-section">
@@ -32,7 +93,7 @@ export default function PlatformPatientDbPage() {
           患者数据库
         </Title>
         <Text type="secondary" style={{ fontSize: 12 }}>
-          智能分析完成后自动入库 · 只读浏览
+          含队列筛选 · 智能分析完成后自动入库
         </Text>
       </div>
 
@@ -43,24 +104,37 @@ export default function PlatformPatientDbPage() {
             <div className="pmp-stat-inline-value">{rows.length} 例</div>
           </div>
           <div className="pmp-stat-inline">
-            <Text type="secondary">随访中</Text>
-            <div className="pmp-stat-inline-value" style={{ color: "#1677ff" }}>
-              {Math.max(1, Math.floor(rows.length * 0.4))} 例
+            <Text type="secondary">当前队列</Text>
+            <div className="pmp-stat-inline-value" style={{ color: "#1677ff", fontSize: 15 }}>
+              {filtered.length} 例
             </div>
           </div>
           <div className="pmp-stat-inline">
-            <Text type="secondary">数据来源</Text>
-            <div className="pmp-stat-inline-value">智能分析入库</div>
+            <Text type="secondary">随访中</Text>
+            <div className="pmp-stat-inline-value">
+              {rows.filter((r) => r.followUpStatus === "随访中").length} 例
+            </div>
           </div>
         </Space>
       </div>
 
       <div className="pmp-card" style={{ padding: 16 }}>
-        <Space style={{ marginBottom: 16 }}>
+        <Space wrap style={{ marginBottom: 16 }}>
+          <Text type="secondary">队列</Text>
+          <AutoComplete
+            style={{ width: 260 }}
+            value={cohort}
+            options={COHORT_PRESETS.map((v) => ({ value: v }))}
+            onChange={setCohort}
+            placeholder="选择或输入队列条件，如：高级别亚组"
+            filterOption={(input, option) =>
+              (option?.value as string).toLowerCase().includes(input.toLowerCase())
+            }
+          />
           <Input.Search
             placeholder="搜索 ID / 姓名 / 诊断"
             allowClear
-            style={{ width: 280 }}
+            style={{ width: 240 }}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
@@ -82,13 +156,21 @@ export default function PlatformPatientDbPage() {
               render: (_, r) => `${r.gender} · ${r.age}岁`,
             },
             { title: "诊断", dataIndex: "diagnosis", ellipsis: true },
+            {
+              title: "病理分级",
+              dataIndex: "gradeLabel",
+              width: 88,
+              render: (v: string) =>
+                v === "高级别" ? <Tag color="red">{v}</Tag> : v === "低级别" ? <Tag color="green">{v}</Tag> : v,
+            },
             { title: "分期", dataIndex: "stage", width: 72 },
             {
-              title: "入库时间",
-              dataIndex: "enrolledAt",
-              width: 100,
-              render: (v) => v || "—",
+              title: "随访",
+              dataIndex: "followUpStatus",
+              width: 88,
+              render: (v: string) => (v === "随访中" ? <Tag color="blue">{v}</Tag> : v),
             },
+            { title: "入库时间", dataIndex: "enrolledAt", width: 100 },
             {
               title: "状态",
               width: 88,

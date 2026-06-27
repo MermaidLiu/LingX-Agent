@@ -35,8 +35,8 @@ function fileIcon(name: string) {
 }
 
 const DEFAULT_INTENT: AnalysisIntent = {
-  question: "请基于上传的多模态数据给出 PMP 诊断结论、分级与治疗建议。",
-  variables: "病理分级、SUVmax、Ki-67、PMCA/DPAM 分型",
+  question: "请基于上传的多模态数据，给出怀疑疾病及鉴别诊断。",
+  variables: "影像征象、病理描述、肿瘤标志物、临床分期",
   outcome: "grade",
   notes: "",
 };
@@ -90,14 +90,14 @@ export default function PlatformChatPage() {
         role: "assistant",
         analysisDone: true,
         content: [
-          `**诊断结论：** ${MOCK_DIAGNOSIS.title}`,
+          `**首要怀疑：** ${MOCK_DIAGNOSIS.title}`,
           `置信度 ${(MOCK_DIAGNOSIS.confidence * 100).toFixed(0)}% · ${MOCK_DIAGNOSIS.staging}`,
           "",
-          "**关键依据：**",
-          ...MOCK_DIAGNOSIS.evidence.map((e) => `• ${e}`),
+          "**鉴别诊断：**",
+          ...MOCK_DIAGNOSIS.probabilities.map((p) => `• ${p.label}（${p.pct}%）`),
           "",
-          "**治疗建议：**",
-          ...MOCK_DIAGNOSIS.treatments.map((t, i) => `${i + 1}. ${t}`),
+          "**支持依据：**",
+          ...MOCK_DIAGNOSIS.evidence.map((e) => `• ${e}`),
           "",
           intent.question ? `**按您的分析需求：** ${intent.question}` : "",
         ]
@@ -155,8 +155,8 @@ export default function PlatformChatPage() {
                     >
                       {savedToDb ? "已加入数据库" : "加入数据库"}
                     </Button>
-                    <Button style={{ marginLeft: 8 }} onClick={() => nav("/db/patients")}>
-                      查看数据库
+                    <Button style={{ marginLeft: 8 }} onClick={() => nav("/analysis")}>
+                      查看诊断分析
                     </Button>
                   </div>
                 ) : null}
