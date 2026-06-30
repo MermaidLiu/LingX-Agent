@@ -46,7 +46,6 @@ from app.services.pathology_trainer import (
     get_training_status,
     train_pathology_classifier,
 )
-from app.services.research_agent import ResearchAgent
 from app.services.suv_report_parser import merge_metrics_into_extensions
 
 router = APIRouter()
@@ -86,6 +85,12 @@ async def module_ingestion_batch(
                     _append_ok(display_name, PetCtInterviewRecord.model_validate(validated))
             elif suffix.lower() == ".dcm":
                 validated = extractor.extract_from_dicom_bytes(content, source_name=name)
+                _append_ok(name, PetCtInterviewRecord.model_validate(validated))
+            elif suffix.lower() in (".csv", ".xlsx", ".xls"):
+                validated = extractor.extract_from_tabular_bytes(content, name)
+                _append_ok(name, PetCtInterviewRecord.model_validate(validated))
+            elif suffix.lower() in (".docx",):
+                validated = extractor.extract_from_docx_bytes(content, source_name=name)
                 _append_ok(name, PetCtInterviewRecord.model_validate(validated))
             else:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -136,6 +141,8 @@ def module_disease_cohort_summary(filters: CohortFilterBody, db: Session = Depen
 @router.post("/agent/run-extended")
 def module_agent_extended(body: AgentExtendedRunBody) -> dict:
     """3. 科研智能体：选题、蒸馏、统计、队列提示、论文骨架（LangChain 工具链）。"""
+    from app.services.research_agent import ResearchAgent
+
     agent = ResearchAgent()
     payload = body.record.model_dump(mode="json")
     parts = agent.run_extended(payload, body.research_topic, body.tasks)

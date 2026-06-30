@@ -1,8 +1,10 @@
-import { ArrowLeftOutlined, ExportOutlined, FileTextOutlined } from "@ant-design/icons";
-import { App, Button, Checkbox, Input, Space, Table, Tag, Typography } from "antd";
+import { ArrowLeftOutlined, ExportOutlined, FileTextOutlined, UploadOutlined } from "@ant-design/icons";
+import { App, Button, Checkbox, Input, Space, Table, Tag, Typography, Upload } from "antd";
+import type { UploadFile } from "antd/es/upload/interface";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { ModuleAnalysisResult, ResearchResultRow, ResearchTask } from "../../data/researchWorkbenchMock";
+import { platformResearchGradeRun, platformRunResearch } from "../../api/platform";
 import { saveModuleResult } from "../../lib/researchModuleResults";
 
 const { Title, Text, Paragraph } = Typography;
@@ -24,6 +26,8 @@ type Props = {
   extraCenter?: ReactNode;
   linkedBanner?: ReactNode;
 };
+
+const GRADE_TASKS = new Set(["grade-pred", "grade-subtype"]);
 
 const THEME = {
   navy: { accent: "#1e3a5f", light: "#eef4fb", tag: "blue" },
@@ -88,35 +92,73 @@ export default function ResearchWorkbench({
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<ResearchResultRow[] | null>(null);
   const [saved, setSaved] = useState(false);
+  const [dicomFiles, setDicomFiles] = useState<UploadFile[]>([]);
+  const [gradeImage, setGradeImage] = useState<string | null>(null);
 
   const task = tasks.find((t) => t.id === taskId) ?? tasks[0];
+  const isGradeTask = GRADE_TASKS.has(taskId);
   const previewRows = result ?? resultMap[taskId] ?? [];
 
   const toggleField = (f: string) => {
     setSelectedFields((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
   };
 
-  function runAnalysis() {
+  async function runAnalysis() {
     setRunning(true);
     setSaved(false);
-    setTimeout(() => {
-      const rows = resultMap[taskId] ?? [];
+    setGradeImage(null);
+    try {
+      let res;
+      if (isGradeTask) {
+        if (dicomFiles.length === 0) {
+          message.warning("请先上传 DICOM 文件（.dcm / .dicom 或 ZIP）");
+          setRunning(false);
+          return;
+        }
+        res = await platformResearchGradeRun(
+          dicomFiles.map((f) => f as unknown as File),
+          moduleKey,
+          taskId,
+        );
+      } else {
+        res = await platformRunResearch({
+          module: moduleKey,
+          task_id: taskId,
+          fields: selectedFields,
+          inclusion,
+          exclusion,
+          outcome,
+          split,
+        });
+      }
+      if (res.pathology_imaging_pending) {
+        message.warning(res.summary);
+      }
+      const rows = res.rows as ResearchResultRow[];
       setResult(rows);
+      if (res.pathology_imaging?.result_image_base64) {
+        setGradeImage(res.pathology_imaging.result_image_base64);
+      }
       const payload: ModuleAnalysisResult = {
         module: moduleKey,
         taskId,
-        taskTitle: task.title,
+        taskTitle: res.task_title,
         ranAt: new Date().toISOString(),
         rows,
-        summary: `${task.title} · n=${stats[0]?.value ?? "—"} · ${rows.length} 项显著结果`,
-        auc: moduleKey === "imaging" ? 0.86 : undefined,
-        cIndex: moduleKey === "clinical" ? 0.74 : undefined,
+        summary: res.summary,
+        auc: res.auc,
+        cIndex: res.c_index,
       };
       saveModuleResult(payload);
       setSaved(true);
+      message.success(`${res.task_title} 分析完成，结果已保存`);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "分析失败");
+      const rows = resultMap[taskId] ?? [];
+      setResult(rows);
+    } finally {
       setRunning(false);
-      message.success(`${task.title} 分析完成，结果已保存`);
-    }, 900);
+    }
   }
 
   const outputChecks = useMemo(() => outputs.map((o) => ({ label: o, checked: Boolean(result) })), [outputs, result]);
@@ -197,6 +239,8 @@ export default function ResearchWorkbench({
                   setTaskId(t.id);
                   setResult(null);
                   setSaved(false);
+                  setGradeImage(null);
+                  setDicomFiles([]);
                 }}
               >
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{t.title}</div>
@@ -220,6 +264,27 @@ export default function ResearchWorkbench({
 
           {extraCenter}
 
+          {isGradeTask ? (
+            <div style={{ marginBottom: 16, padding: 12, background: colors.light, borderRadius: 8 }}>
+              <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+                上传 DICOM 调用病理分级模型（支持 .dcm / .dicom / ZIP）
+              </Text>
+              <Upload
+                multiple
+                accept=".dcm,.dicom,.zip"
+                showUploadList
+                fileList={dicomFiles}
+                beforeUpload={(file) => {
+                  setDicomFiles((prev) => [...prev, file as UploadFile]);
+                  return false;
+                }}
+                onRemove={(file) => setDicomFiles((prev) => prev.filter((f) => f.uid !== file.uid))}
+              >
+                <Button icon={<UploadOutlined />}>选择 DICOM 文件</Button>
+              </Upload>
+            </div>
+          ) : null}
+
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <div className="pmp-panel-title" style={{ margin: 0 }}>
               分析结果{result ? "（已运行）" : "（预览）"}
@@ -242,6 +307,13 @@ export default function ResearchWorkbench({
             ]}
           />
           <BarChart rows={previewRows} />
+          {gradeImage ? (
+            <img
+              src={`data:image/png;base64,${gradeImage}`}
+              alt="病理分级可视化"
+              style={{ maxWidth: "100%", marginTop: 12, borderRadius: 8, border: "1px solid #e8edf5" }}
+            />
+          ) : null}
           {saved ? (
             <Tag color="green" style={{ marginTop: 12 }}>
               结果已保存，多模态模块可关联引用

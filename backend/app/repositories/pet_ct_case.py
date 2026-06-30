@@ -102,3 +102,18 @@ def upsert_case(db: Session, rec: PetCtInterviewRecord) -> PetCtCaseORM:
 
 def get_by_exam_id(db: Session, exam_id: str) -> PetCtCaseORM | None:
     return db.execute(select(PetCtCaseORM).where(PetCtCaseORM.exam_id == exam_id)).scalar_one_or_none()
+
+
+def list_all(db: Session, skip: int = 0, limit: int = 500) -> list[PetCtCaseORM]:
+    return list(
+        db.execute(
+            select(PetCtCaseORM).order_by(PetCtCaseORM.updated_at.desc()).offset(skip).limit(limit)
+        ).scalars().all()
+    )
+
+
+def count_all(db: Session) -> int:
+    from sqlalchemy import func
+
+    n = db.execute(select(func.count()).select_from(PetCtCaseORM)).scalar_one()
+    return int(n or 0)

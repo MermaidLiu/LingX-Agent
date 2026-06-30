@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
+from app.api.routes.platform import router as platform_router
 from app.api.routes.diseases import router as diseases_router
 from app.api.routes.lingxi_modules import router as lingxi_modules_router
 from app.core.config import settings
@@ -27,7 +28,7 @@ from app.repositories import disease as disease_repo
 from app.repositories import pet_ct_case, research_project
 from app.services.data_extractor import DataExtractor
 from app.services.petct_analyzer import PETCTAnalyzer
-from app.services.research_agent import ResearchAgent
+from app.services.platform_seed import seed_if_empty
 
 
 @asynccontextmanager
@@ -38,11 +39,13 @@ async def lifespan(_: FastAPI):
     ensure_sqlite_columns()
     with SessionLocal() as db:
         disease_repo.seed_default_diseases(db)
+        seed_if_empty(db)
     yield
 
 
 app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
 
+app.include_router(platform_router, prefix=f"{settings.api_prefix}/platform", tags=["Platform·工作台"])
 app.include_router(diseases_router, prefix=f"{settings.api_prefix}/diseases", tags=["病种库"])
 app.include_router(lingxi_modules_router, prefix=f"{settings.api_prefix}/modules", tags=["PMP Agent·核心模块"])
 
@@ -98,6 +101,8 @@ class ResearchRunBody(PetCtInterviewRecord):
 
 @app.post(f"{settings.api_prefix}/research/run")
 def run_research(body: ResearchRunBody) -> dict[str, str]:
+    from app.services.research_agent import ResearchAgent
+
     agent = ResearchAgent()
     patient = body.model_dump(mode="json")
     topic = patient.pop("research_topic", "")

@@ -270,3 +270,87 @@ class DataExtractor:
             except ValueError:
                 return None
         return None
+
+    def extract_from_tabular_bytes(self, content: bytes, source_name: str) -> dict[str, Any]:
+        """Parse CSV / Excel clinical table into a minimal PetCtInterviewRecord."""
+        import io
+
+        suffix = Path(source_name).suffix.lower()
+        try:
+            if suffix == ".csv":
+                df = __import__("pandas").read_csv(io.BytesIO(content))
+            else:
+                df = __import__("pandas").read_excel(io.BytesIO(content))
+        except Exception as e:
+            raise ValueError(f"无法读取表格文件：{e}") from e
+        if df.empty:
+            raise ValueError("表格为空")
+        row = df.iloc[0].to_dict()
+        out: dict[str, Any] = {"patient_base_info": {}, "interview_info": {}, "supplementary_interview_info": {}}
+        lower_cols = {str(c).strip().lower(): c for c in df.columns}
+
+        def pick(*keys: str) -> Any:
+            for k in keys:
+                if k in row and row[k] is not None and str(row[k]).strip():
+                    return row[k]
+                if k.lower() in lower_cols:
+                    v = row.get(lower_cols[k.lower()])
+                    if v is not None and str(v).strip():
+                        return v
+            return None
+
+        if pick("姓名", "name", "患者姓名", "patient_name"):
+            out["patient_base_info"]["name"] = str(pick("姓名", "name", "患者姓名", "patient_name"))
+        if pick("性别", "gender"):
+            out["patient_base_info"]["gender"] = str(pick("性别", "gender"))
+        age = pick("年龄", "age")
+        if age is not None:
+            try:
+                out["patient_base_info"]["age"] = int(float(age))
+            except (TypeError, ValueError):
+                pass
+        if pick("检查号", "exam_id", "accession"):
+            out["patient_base_info"]["exam_id"] = str(pick("检查号", "exam_id", "accession"))
+        if pick("科室", "department"):
+            out["patient_base_info"]["department"] = str(pick("科室", "department"))
+        if pick("病历号", "medical_record_id", "mrn"):
+            out["patient_base_info"]["medical_record_id"] = str(pick("病历号", "medical_record_id", "mrn"))
+        if pick("临床诊断", "诊断", "diagnosis", "clinical_diagnosis"):
+            out["interview_info"]["clinical_diagnosis"] = str(
+                pick("临床诊断", "诊断", "diagnosis", "clinical_diagnosis")
+            )
+        text_blob = " | ".join(str(v) for v in row.values() if v is not None)
+        out["research_extensions"] = {
+            "document_uploads": [{"filename": source_name, "kind": "tabular", "text_excerpt": text_blob[:2000]}],
+            "imaging_report_text": text_blob[:4000],
+        }
+        if not out["patient_base_info"].get("exam_id"):
+            out["patient_base_info"]["exam_id"] = f"XLS{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        return self._validate_data(out)
+
+    def extract_from_docx_bytes(self, content: bytes, source_name: str = "") -> dict[str, Any]:
+        """Extract text from Word .docx and heuristic-parse fields."""
+        import io
+        import zipfile
+        import xml.etree.ElementTree as ET
+
+        try:
+            with zipfile.ZipFile(io.BytesIO(content)) as zf:
+                xml = zf.read("word/document.xml")
+        except Exception as e:
+            raise ValueError(f"无法读取 Word 文档：{e}") from e
+        root = ET.fromstring(xml)
+        parts = []
+        for node in root.iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"):
+            if node.text:
+                parts.append(node.text)
+        full_text = "\n".join(parts)
+        if not full_text.strip():
+            raise ValueError("Word 文档未提取到文本")
+        structured = self._heuristic_parse(full_text, source_filename=source_name or "upload.docx")
+        structured.setdefault("research_extensions", {})
+        structured["research_extensions"].setdefault(
+            "document_uploads",
+            [{"filename": source_name or "upload.docx", "kind": "docx", "text_excerpt": full_text[:2000]}],
+        )
+        return self._validate_data(structured)

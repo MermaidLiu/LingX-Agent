@@ -1,31 +1,57 @@
 import { FileImageOutlined } from "@ant-design/icons";
-import { Button, Descriptions, Drawer, Tabs, Typography } from "antd";
-import { useMemo, useState } from "react";
+import { Button, Descriptions, Drawer, Spin, Tabs, Typography } from "antd";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { platformListImaging, type PlatformImagingRecord } from "../../api/platform";
 import { DatabasePageShell, DbTitle, StatusTag } from "../../components/platform/DatabasePageShell";
 import ImagingViewer from "../../components/platform/ImagingViewer";
-import { MOCK_IMAGING_DB, type ImagingRecord } from "../../data/databaseMock";
 
 const { Text, Paragraph } = Typography;
 
 /** MR 与 MRI 统一筛选 */
-function matchModality(row: ImagingRecord, filter: string) {
+function matchModality(row: PlatformImagingRecord, filter: string) {
   if (filter === "MR") return row.modality === "MRI" || row.modality === "MR";
   return row.modality === filter;
 }
 
 export default function PlatformImagingDbPage() {
-  const [detail, setDetail] = useState<ImagingRecord | null>(null);
+  const [detail, setDetail] = useState<PlatformImagingRecord | null>(null);
+  const [data, setData] = useState<PlatformImagingRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchImaging = useCallback(async () => {
+    setLoading(true);
+    try {
+      const rows = await platformListImaging();
+      setData(rows);
+    } catch {
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchImaging();
+  }, [fetchImaging]);
 
   const stats = useMemo(() => {
     return [
-      { title: "影像总数", value: MOCK_IMAGING_DB.length, suffix: "例" },
-      { title: "DICOM 总量", value: MOCK_IMAGING_DB.reduce((s, r) => s + r.dicomCount, 0), suffix: "张" },
+      { title: "影像总数", value: data.length, suffix: "例" },
+      { title: "DICOM 总量", value: data.reduce((s, r) => s + r.dicomCount, 0), suffix: "张" },
     ];
-  }, []);
+  }, [data]);
+
+  if (loading) {
+    return (
+      <div className="pmp-section" style={{ textAlign: "center", padding: 48 }}>
+        <Spin />
+      </div>
+    );
+  }
 
   return (
     <>
-      <DatabasePageShell<ImagingRecord>
+      <DatabasePageShell<PlatformImagingRecord>
         title={
           <DbTitle level={4} style={{ margin: 0 }}>
             <FileImageOutlined style={{ marginRight: 8, color: "#1677ff" }} />
@@ -38,7 +64,7 @@ export default function PlatformImagingDbPage() {
           </Typography.Text>
         }
         stats={stats}
-        data={MOCK_IMAGING_DB}
+        data={data}
         rowKey={(r) => r.id}
         filterPlaceholder="搜索患者 / 检查号 / 报告摘要"
         filterFn={(row, kw) =>

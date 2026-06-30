@@ -1,9 +1,7 @@
 import { DatabaseOutlined, TeamOutlined } from "@ant-design/icons";
-import { App, AutoComplete, Button, Input, Space, Table, Tag, Typography } from "antd";
-import { useMemo, useState } from "react";
-import { MOCK_COHORT } from "../../data/analysisMock";
-import { MOCK_PATIENTS } from "../../data/platformMock";
-import { loadPatients } from "../../lib/platformPatients";
+import { App, AutoComplete, Button, Input, Space, Spin, Table, Tag, Typography } from "antd";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { platformListPatients, type PlatformPatient } from "../../api/platform";
 
 const { Title, Text } = Typography;
 
@@ -29,25 +27,19 @@ type PatientRow = {
   department: string;
 };
 
-function buildRows(): PatientRow[] {
-  const patients = loadPatients().length ? loadPatients() : MOCK_PATIENTS;
-  const cohortMap = new Map(MOCK_COHORT.map((c) => [c.patientId, c]));
-
-  return patients.map((p) => {
-    const c = cohortMap.get(p.id);
-    return {
-      id: p.id,
-      name: p.name,
-      gender: p.gender,
-      age: p.age,
-      diagnosis: p.diagnosis,
-      stage: p.stage,
-      gradeLabel: c?.gradeLabel ?? "—",
-      followUpStatus: c?.followUpStatus ?? "—",
-      enrolledAt: p.enrolledAt,
-      department: p.department,
-    };
-  });
+function toRow(p: PlatformPatient): PatientRow {
+  return {
+    id: p.id,
+    name: p.name,
+    gender: p.gender,
+    age: p.age,
+    diagnosis: p.diagnosis,
+    stage: p.stage,
+    gradeLabel: p.gradeLabel ?? "—",
+    followUpStatus: p.followUpStatus ?? "—",
+    enrolledAt: p.enrolledAt,
+    department: p.department,
+  };
 }
 
 function matchCohort(row: PatientRow, cohort: string): boolean {
@@ -70,7 +62,24 @@ export default function PlatformPatientDbPage() {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState("");
   const [cohort, setCohort] = useState("全部病例");
-  const rows = useMemo(() => buildRows(), []);
+  const [rows, setRows] = useState<PatientRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchPatients = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await platformListPatients();
+      setRows(data.map(toRow));
+    } catch {
+      message.error("加载患者数据库失败，请确认后端已启动");
+    } finally {
+      setLoading(false);
+    }
+  }, [message]);
+
+  useEffect(() => {
+    fetchPatients();
+  }, [fetchPatients]);
 
   const filtered = useMemo(() => {
     const k = keyword.trim().toLowerCase();
@@ -92,9 +101,14 @@ export default function PlatformPatientDbPage() {
           <TeamOutlined style={{ marginRight: 8, color: "#1677ff" }} />
           患者数据库
         </Title>
-        <Text type="secondary" style={{ fontSize: 12 }}>
-          含队列筛选 · 智能分析完成后自动入库
-        </Text>
+        <Space>
+          <Button size="small" onClick={fetchPatients}>
+            刷新
+          </Button>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            含队列筛选 · 智能分析完成后自动入库
+          </Text>
+        </Space>
       </div>
 
       <div className="pmp-card" style={{ padding: 16, marginBottom: 16 }}>
@@ -142,42 +156,48 @@ export default function PlatformPatientDbPage() {
             导出
           </Button>
         </Space>
-        <Table
-          size="small"
-          rowKey="id"
-          dataSource={filtered}
-          pagination={{ pageSize: 8 }}
-          columns={[
-            { title: "患者 ID", dataIndex: "id", width: 130 },
-            { title: "姓名", dataIndex: "name", width: 88 },
-            {
-              title: "基本信息",
-              width: 120,
-              render: (_, r) => `${r.gender} · ${r.age}岁`,
-            },
-            { title: "诊断", dataIndex: "diagnosis", ellipsis: true },
-            {
-              title: "病理分级",
-              dataIndex: "gradeLabel",
-              width: 88,
-              render: (v: string) =>
-                v === "高级别" ? <Tag color="red">{v}</Tag> : v === "低级别" ? <Tag color="green">{v}</Tag> : v,
-            },
-            { title: "分期", dataIndex: "stage", width: 72 },
-            {
-              title: "随访",
-              dataIndex: "followUpStatus",
-              width: 88,
-              render: (v: string) => (v === "随访中" ? <Tag color="blue">{v}</Tag> : v),
-            },
-            { title: "入库时间", dataIndex: "enrolledAt", width: 100 },
-            {
-              title: "状态",
-              width: 88,
-              render: () => <Tag color="green">已入库</Tag>,
-            },
-          ]}
-        />
+        {loading ? (
+          <div style={{ textAlign: "center", padding: 32 }}>
+            <Spin />
+          </div>
+        ) : (
+          <Table
+            size="small"
+            rowKey="id"
+            dataSource={filtered}
+            pagination={{ pageSize: 8 }}
+            columns={[
+              { title: "患者 ID", dataIndex: "id", width: 130 },
+              { title: "姓名", dataIndex: "name", width: 88 },
+              {
+                title: "基本信息",
+                width: 120,
+                render: (_, r) => `${r.gender} · ${r.age}岁`,
+              },
+              { title: "诊断", dataIndex: "diagnosis", ellipsis: true },
+              {
+                title: "病理分级",
+                dataIndex: "gradeLabel",
+                width: 88,
+                render: (v: string) =>
+                  v === "高级别" ? <Tag color="red">{v}</Tag> : v === "低级别" ? <Tag color="green">{v}</Tag> : v,
+              },
+              { title: "分期", dataIndex: "stage", width: 72 },
+              {
+                title: "随访",
+                dataIndex: "followUpStatus",
+                width: 88,
+                render: (v: string) => (v === "随访中" ? <Tag color="blue">{v}</Tag> : v),
+              },
+              { title: "入库时间", dataIndex: "enrolledAt", width: 100 },
+              {
+                title: "状态",
+                width: 88,
+                render: () => <Tag color="green">已入库</Tag>,
+              },
+            ]}
+          />
+        )}
       </div>
     </div>
   );

@@ -11,12 +11,13 @@ import { App, Button, Spin, Tag, Typography, Upload } from "antd";
 import type { UploadFile } from "antd/es/upload/interface";
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { platformChatAnalyze, platformChatSave } from "../../api/platform";
 import AnalysisIntentPanel, { type AnalysisIntent } from "../../components/platform/AnalysisIntentPanel";
-import { MOCK_DIAGNOSIS } from "../../data/platformMock";
+import { markSaved, loadPlatformSession, setAnalysisResult } from "../../lib/platformSession";
 
 const { Text, Paragraph } = Typography;
 
-const ACCEPT = ".xlsx,.xls,.csv,.zip,.pdf,.doc,.docx";
+const ACCEPT = ".xlsx,.xls,.csv,.zip,.pdf,.doc,.docx,.json,.dcm,.dicom";
 
 type ChatMessage = {
   id: string;
@@ -24,6 +25,7 @@ type ChatMessage = {
   content: string;
   files?: { name: string; icon: React.ReactNode }[];
   analysisDone?: boolean;
+  gradeImage?: string;
 };
 
 function fileIcon(name: string) {
@@ -32,6 +34,34 @@ function fileIcon(name: string) {
   if (lower.endsWith(".pdf")) return <FilePdfOutlined />;
   if (lower.endsWith(".doc") || lower.endsWith(".docx")) return <FileWordOutlined />;
   return <FileExcelOutlined />;
+}
+
+function formatDiagnosisReply(
+  diagnosis: {
+    title: string;
+    confidence: number;
+    staging: string;
+    evidence: string[];
+    probabilities: { label: string; pct: number }[];
+  },
+  intentQuestion: string,
+  extraNotes: string[],
+) {
+  return [
+    `**首要怀疑：** ${diagnosis.title}`,
+    `置信度 ${(diagnosis.confidence * 100).toFixed(0)}% · ${diagnosis.staging}`,
+    "",
+    "**鉴别诊断：**",
+    ...diagnosis.probabilities.map((p) => `• ${p.label}（${p.pct}%）`),
+    "",
+    "**支持依据：**",
+    ...diagnosis.evidence.map((e) => `• ${e}`),
+    ...extraNotes.map((n) => `\n> ${n}`),
+    "",
+    intentQuestion ? `**按您的分析需求：** ${intentQuestion}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 const DEFAULT_INTENT: AnalysisIntent = {
@@ -63,7 +93,7 @@ export default function PlatformChatPage() {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
   }
 
-  function handleSend() {
+  async function handleSend() {
     const text = input.trim();
     if (!text && files.length === 0) {
       message.warning("请输入问题或上传文件");
@@ -79,40 +109,63 @@ export default function PlatformChatPage() {
 
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+    const uploadFiles = files.map((f) => f as unknown as File);
     setFiles([]);
     setLoading(true);
     setSavedToDb(false);
     scrollBottom();
 
-    setTimeout(() => {
+    try {
+      const mergedIntent = { ...intent, question: text || intent.question };
+      const result = await platformChatAnalyze(uploadFiles, mergedIntent);
+      setAnalysisResult(result);
+
+      const extraNotes: string[] = [];
+      if (result.pathology_imaging_status) {
+        extraNotes.push(result.pathology_imaging_status);
+      }
+      if (result.ingest_notes.length) {
+        extraNotes.push(...result.ingest_notes.slice(0, 2));
+      }
+
       const aiMsg: ChatMessage = {
         id: `a-${Date.now()}`,
         role: "assistant",
         analysisDone: true,
-        content: [
-          `**首要怀疑：** ${MOCK_DIAGNOSIS.title}`,
-          `置信度 ${(MOCK_DIAGNOSIS.confidence * 100).toFixed(0)}% · ${MOCK_DIAGNOSIS.staging}`,
-          "",
-          "**鉴别诊断：**",
-          ...MOCK_DIAGNOSIS.probabilities.map((p) => `• ${p.label}（${p.pct}%）`),
-          "",
-          "**支持依据：**",
-          ...MOCK_DIAGNOSIS.evidence.map((e) => `• ${e}`),
-          "",
-          intent.question ? `**按您的分析需求：** ${intent.question}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n"),
+        content: formatDiagnosisReply(result.diagnosis, mergedIntent.question, extraNotes),
+        gradeImage: result.pathology_imaging?.result_image_base64 || undefined,
       };
       setMessages((prev) => [...prev, aiMsg]);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "分析失败，请检查后端服务是否启动");
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `err-${Date.now()}`,
+          role: "assistant",
+          content: "分析请求失败。请确认后端已启动（`uvicorn app.main:app`），并重试。",
+        },
+      ]);
+    } finally {
       setLoading(false);
       scrollBottom();
-    }, 1200);
+    }
   }
 
-  function joinDatabase() {
-    setSavedToDb(true);
-    message.success("分析结果已加入患者数据库");
+  async function joinDatabase() {
+    try {
+      const session = loadPlatformSession();
+      if (!session.record) {
+        message.warning("暂无分析结果可入库");
+        return;
+      }
+      const res = await platformChatSave(session.record);
+      markSaved(res.exam_id);
+      setSavedToDb(true);
+      message.success("分析结果已加入患者数据库");
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "入库失败");
+    }
   }
 
   return (
@@ -143,6 +196,13 @@ export default function PlatformChatPage() {
                   </div>
                 ) : null}
                 <Paragraph style={{ margin: 0, whiteSpace: "pre-wrap" }}>{m.content}</Paragraph>
+                {m.gradeImage ? (
+                  <img
+                    src={`data:image/png;base64,${m.gradeImage}`}
+                    alt="病理分级结果"
+                    style={{ maxWidth: "100%", marginTop: 12, borderRadius: 8, border: "1px solid #e8edf5" }}
+                  />
+                ) : null}
                 {m.analysisDone ? (
                   <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #e8edf5" }}>
                     <Tag color="green">分析完成</Tag>

@@ -12,19 +12,19 @@ import {
 } from "@ant-design/icons";
 import { App, Button, Input, Modal, Space, Table, Tag, Typography } from "antd";
 import type { ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   DEFAULT_KNOWLEDGE_QUERY,
   GENERATION_MODULES,
   KNOWLEDGE_SOURCES,
-  MOCK_ANSWER_POINTS,
-  MOCK_GRANT_DRAFT,
-  MOCK_KNOWLEDGE_LITERATURE,
-  MOCK_PAPER_DRAFT,
   type KnowledgeLiterature,
 } from "../../data/knowledgeLibraryMock";
-import { MOCK_PPT_SLIDES, MOCK_REVIEW_OUTLINE } from "../../data/researchMock";
+import {
+  platformKnowledgeGenerate,
+  platformKnowledgeSearch,
+  type AnswerPoint,
+} from "../../api/platform";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -55,25 +55,11 @@ export default function PlatformKnowledgeLibraryPage() {
   const [genModal, setGenModal] = useState<{ key: string; title: string } | null>(null);
   const [genContent, setGenContent] = useState("");
   const [highlightRef, setHighlightRef] = useState<number | null>(null);
+  const [literature, setLiterature] = useState<KnowledgeLiterature[]>([]);
+  const [answerPoints, setAnswerPoints] = useState<AnswerPoint[]>([]);
+  const [stats, setStats] = useState({ hit: 0, reviews: 0, guidelines: 0, selected: 0 });
 
-  const literature = useMemo(() => {
-    if (!searched) return [];
-    return [...MOCK_KNOWLEDGE_LITERATURE].sort((a, b) => b.relevance - a.relevance);
-  }, [searched]);
-
-  const stats = useMemo(() => {
-    if (!searched) {
-      return { hit: 0, reviews: 0, guidelines: 0, selected: 0 };
-    }
-    return {
-      hit: 126,
-      reviews: literature.filter((l) => l.source === "综述").length + 6,
-      guidelines: literature.filter((l) => l.source === "指南/共识").length + 1,
-      selected: selectedIds.length,
-    };
-  }, [literature, selectedIds, searched]);
-
-  function startSearch() {
+  async function startSearch() {
     if (!query.trim()) {
       message.warning("请输入科研问题");
       return;
@@ -82,12 +68,19 @@ export default function PlatformKnowledgeLibraryPage() {
     setSearched(false);
     setSelectedIds([]);
     setHighlightRef(null);
-    setTimeout(() => {
+    try {
+      const res = await platformKnowledgeSearch(query.trim(), KNOWLEDGE_SOURCES);
+      setLiterature(res.literature as KnowledgeLiterature[]);
+      setAnswerPoints(res.answer_points);
+      setStats({ ...res.stats, selected: 0 });
       setSearched(true);
-      setSelectedIds(MOCK_KNOWLEDGE_LITERATURE.slice(0, 5).map((l) => l.id));
-      setLoading(false);
+      setSelectedIds(res.literature.slice(0, 5).map((l) => l.id));
       message.success("检索完成，已生成回答摘要与可查实文献");
-    }, 1000);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "检索失败");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function resetSession() {
@@ -96,6 +89,9 @@ export default function PlatformKnowledgeLibraryPage() {
     setQuery(DEFAULT_KNOWLEDGE_QUERY);
     setGenModal(null);
     setHighlightRef(null);
+    setLiterature([]);
+    setAnswerPoints([]);
+    setStats({ hit: 0, reviews: 0, guidelines: 0, selected: 0 });
   }
 
   function scrollToRef(refNum: number) {
@@ -104,7 +100,7 @@ export default function PlatformKnowledgeLibraryPage() {
     row?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
-  function openGenerate(key: string, title: string) {
+  async function openGenerate(key: string, title: string) {
     if (!searched) {
       message.info("请先完成检索");
       return;
@@ -113,16 +109,14 @@ export default function PlatformKnowledgeLibraryPage() {
       message.warning("请至少选择一篇文献作为证据");
       return;
     }
-    const n = selectedIds.length;
-    const drafts: Record<string, string> = {
-      review: MOCK_REVIEW_OUTLINE.replace("影像代谢与病理分级的关联研究", query.slice(0, 30)) + `\n\n> 基于已选 ${n} 篇文献`,
-      paper: MOCK_PAPER_DRAFT + `\n\n> 引用绑定：已选 ${n} 篇`,
-      grant: MOCK_GRANT_DRAFT + `\n\n> 依据 ${n} 篇：${selectedIds.join(", ")}`,
-      ppt: MOCK_PPT_SLIDES.map((s) => `## 第 ${s.page} 页 · ${s.title}\n${s.bullets.map((b) => `- ${b}`).join("\n")}`).join("\n\n"),
-    };
-    setGenContent(drafts[key] ?? "");
-    setGenModal({ key, title });
-    message.success(`正在基于 ${n} 篇已选文献生成…`);
+    try {
+      const res = await platformKnowledgeGenerate(key, query, selectedIds);
+      setGenContent(res.content);
+      setGenModal({ key, title: res.title || title });
+      message.success(`已基于 ${selectedIds.length} 篇文献生成`);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "生成失败");
+    }
   }
 
   return (
@@ -203,7 +197,7 @@ export default function PlatformKnowledgeLibraryPage() {
                   <Tag color="purple">基于知识库检索结果</Tag>
                 </div>
                 <div className="pmp-kb-answer-list">
-                  {MOCK_ANSWER_POINTS.map((p, i) => (
+                  {answerPoints.map((p, i) => (
                     <div key={i} className="pmp-kb-answer-item">
                       <div className="pmp-kb-answer-text">
                         <Text strong style={{ color: "#7c3aed", marginRight: 6 }}>
@@ -338,7 +332,7 @@ export default function PlatformKnowledgeLibraryPage() {
                 { label: "命中文献", value: stats.hit, color: "#1677ff" },
                 { label: "可用综述", value: stats.reviews, color: "#7c3aed" },
                 { label: "指南/共识", value: stats.guidelines, color: "#3f8600" },
-                { label: "已选证据", value: stats.selected, color: "#d48806" },
+                { label: "已选证据", value: selectedIds.length, color: "#d48806" },
               ].map((s) => (
                 <div key={s.label} className="pmp-kb-stat-box">
                   <div className="pmp-kb-stat-num" style={{ color: s.color }}>

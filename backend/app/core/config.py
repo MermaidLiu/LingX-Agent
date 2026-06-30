@@ -63,6 +63,15 @@ class Settings(BaseModel):
     research_llm_model: str = Field(default_factory=lambda: _e("RESEARCH_LLM_MODEL", "gpt-4o"))
     petct_model_path: str = Field(default_factory=lambda: _e("PETCT_MODEL_PATH", "models/petct_seg_model.pth"))
     demo_mode: bool = Field(default_factory=lambda: _e_bool("DEMO_MODE", False))
+    pathology_imaging_api_url: str = Field(
+        default_factory=lambda: _e(
+            "PATHOLOGY_IMAGING_API_URL",
+            "http://42.81.102.195:8000/ct-module/dicom/upload",
+        )
+    )
+    pathology_imaging_api_timeout: float = Field(
+        default_factory=lambda: float(_e("PATHOLOGY_IMAGING_API_TIMEOUT", "300"))
+    )
     cors_allow_origins: list[str] = Field(default_factory=_e_cors_origins)
 
 

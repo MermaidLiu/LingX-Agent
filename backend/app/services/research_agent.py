@@ -6,11 +6,6 @@ import json
 import os
 from typing import Any
 
-from langchain_classic.agents import AgentExecutor, create_openai_tools_agent
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
-
 from app.core.config import settings
 from app.demo_fixtures import build_offline_demo_report
 from app.models.domain import PetCtInterviewRecord
@@ -24,7 +19,6 @@ def _patient_summary(patient_data: dict[str, Any]) -> str:
         return str(patient_data)[:12000]
 
 
-@tool
 def statistical_analysis(data: str, research_topic: str) -> str:
     """对 PET-CT 相关结构化患者数据进行描述性统计摘要（可对接 pandas/scipy 扩展）。"""
     try:
@@ -40,7 +34,6 @@ def statistical_analysis(data: str, research_topic: str) -> str:
     return "\n".join(lines)
 
 
-@tool
 def pathology_grading(data: str) -> str:
     """对病例输出诊断结果：综合临床诊断、PET 报告与代谢指标，给出高级别/低级别判定及依据。"""
     try:
@@ -63,7 +56,6 @@ def pathology_grading(data: str) -> str:
     return "\n".join(lines)
 
 
-@tool
 def treatment_recommendations(data: str) -> str:
     """根据诊断结果给出治疗推荐与指南参考。"""
     try:
@@ -79,7 +71,6 @@ def treatment_recommendations(data: str) -> str:
     return "\n".join(lines)
 
 
-@tool
 def clinical_correlation(indicators_json: str, disease_context: str = "") -> str:
     """分析医生输入的临床指标与诊断结果的可能相关性，并推荐文献。"""
     try:
@@ -100,7 +91,6 @@ def clinical_correlation(indicators_json: str, disease_context: str = "") -> str
     return "\n".join(lines) if len(lines) > 1 else "未检出已知相关性，请补充更多指标或入库更多病例。"
 
 
-@tool
 def literature_research(research_topic: str) -> str:
     """检索诊断结果相关文献；可按高级别/低级别主题推荐指南与综述。"""
     grade = "高级别" if "高" in research_topic else "低级别" if "低" in research_topic else "通用"
@@ -112,7 +102,6 @@ def literature_research(research_topic: str) -> str:
     return "\n".join(lines)
 
 
-@tool
 def knowledge_distillation(data: str) -> str:
     """对结构化 JSON 做科研知识蒸馏：提炼暴露（如 SUV/MTV）、结局（如退热/病理确诊）与混杂因素。"""
     try:
@@ -133,7 +122,6 @@ def knowledge_distillation(data: str) -> str:
     return "\n".join(lines)
 
 
-@tool
 def cohort_mining_suggestions(data: str, research_topic: str) -> str:
     """队列挖掘：根据字段分布建议纳排标准、分层变量与统计模型。"""
     return (
@@ -145,7 +133,6 @@ def cohort_mining_suggestions(data: str, research_topic: str) -> str:
     )
 
 
-@tool
 def auto_topic_selector(data: str) -> str:
     """自动选题：输出 3 个可执行的回顾性研究方向（中文）。"""
     try:
@@ -161,7 +148,6 @@ def auto_topic_selector(data: str) -> str:
     )
 
 
-@tool
 def paper_generation(analysis_result: str, literature_review: str) -> str:
     """根据统计摘要与文献综述生成 SCI 风格论文骨架（摘要/方法/结果/讨论）。"""
     return (
@@ -180,7 +166,10 @@ def paper_generation(analysis_result: str, literature_review: str) -> str:
 class ResearchAgent:
     def __init__(self, llm_model: str | None = None) -> None:
         self._model_name = llm_model or settings.research_llm_model
-        self._tools = [
+        self._executor: Any = None
+
+    def _tool_fns(self) -> list[Any]:
+        return [
             statistical_analysis,
             literature_research,
             knowledge_distillation,
@@ -191,9 +180,13 @@ class ResearchAgent:
             treatment_recommendations,
             clinical_correlation,
         ]
-        self._executor: AgentExecutor | None = None
 
-    def _ensure_llm(self) -> ChatOpenAI:
+    def _create_executor(self) -> Any:
+        from langchain_classic.agents import AgentExecutor, create_openai_tools_agent
+        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+        from langchain_core.tools import tool
+        from langchain_openai import ChatOpenAI
+
         api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY", "")
         kwargs: dict[str, Any] = {
             "model": self._model_name,
@@ -203,10 +196,9 @@ class ResearchAgent:
             kwargs["api_key"] = api_key
         if settings.openai_base_url:
             kwargs["base_url"] = settings.openai_base_url
-        return ChatOpenAI(**kwargs)
+        llm = ChatOpenAI(**kwargs)
 
-    def _create_executor(self) -> AgentExecutor:
-        llm = self._ensure_llm()
+        tools = [tool(fn) for fn in self._tool_fns()]
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -220,8 +212,8 @@ class ResearchAgent:
                 MessagesPlaceholder("agent_scratchpad"),
             ]
         )
-        agent = create_openai_tools_agent(llm, self._tools, prompt)
-        return AgentExecutor(agent=agent, tools=self._tools, verbose=False)
+        agent = create_openai_tools_agent(llm, tools, prompt)
+        return AgentExecutor(agent=agent, tools=tools, verbose=False)
 
     def run_research(self, patient_data: dict[str, Any], research_topic: str) -> str:
         """运行科研智能体；无 API Key 或 demo_mode 时返回演示用离线报告。"""
@@ -230,9 +222,9 @@ class ResearchAgent:
         use_offline_demo = settings.demo_mode or not api_key
 
         if use_offline_demo:
-            a = statistical_analysis.invoke({"data": data_str, "research_topic": research_topic})
-            lit = literature_research.invoke({"research_topic": research_topic})
-            paper = paper_generation.invoke({"analysis_result": a, "literature_review": lit})
+            a = statistical_analysis(data_str, research_topic)
+            lit = literature_research(research_topic)
+            paper = paper_generation(a, lit)
             return build_offline_demo_report(
                 patient_data,
                 research_topic,
@@ -265,26 +257,22 @@ class ResearchAgent:
         task_set = set(tasks) if tasks else {"topic", "distill", "stats", "cohort_hint", "paper"}
 
         if "topic" in task_set:
-            out["topic"] = str(auto_topic_selector.invoke({"data": data_str}))
+            out["topic"] = auto_topic_selector(data_str)
         if "distill" in task_set:
-            out["distill"] = str(knowledge_distillation.invoke({"data": data_str}))
+            out["distill"] = knowledge_distillation(data_str)
         if "stats" in task_set:
-            out["stats"] = str(statistical_analysis.invoke({"data": data_str, "research_topic": research_topic}))
+            out["stats"] = statistical_analysis(data_str, research_topic)
         if "cohort_hint" in task_set or "mine" in task_set:
-            out["cohort_hint"] = str(
-                cohort_mining_suggestions.invoke({"data": data_str, "research_topic": research_topic})
-            )
+            out["cohort_hint"] = cohort_mining_suggestions(data_str, research_topic)
         if "pathology" in task_set or "grade" in task_set:
-            out["pathology"] = str(pathology_grading.invoke({"data": data_str}))
+            out["pathology"] = pathology_grading(data_str)
         if "treatment" in task_set:
-            out["treatment"] = str(treatment_recommendations.invoke({"data": data_str}))
+            out["treatment"] = treatment_recommendations(data_str)
         lit = ""
         if "paper" in task_set:
-            lit = str(literature_research.invoke({"research_topic": research_topic}))
+            lit = literature_research(research_topic)
             out["literature"] = lit
-            out["paper"] = str(
-                paper_generation.invoke({"analysis_result": out.get("stats", ""), "literature_review": lit})
-            )
+            out["paper"] = paper_generation(out.get("stats", ""), lit)
 
         if use_offline and "paper" in task_set:
             out["markdown_bundle"] = build_offline_demo_report(

@@ -34,6 +34,39 @@ chmod +x start.sh
 ./start.sh
 ```
 
+### 本地开发（macOS / Windows）
+
+见下方「手动启动」。
+
+### 服务器一键部署（Ubuntu 22.04+）
+
+代码已在服务器上时，在**仓库根目录**执行：
+
+```bash
+sudo bash deploy/deploy-server.sh
+```
+
+国内服务器建议加 pip 镜像：
+
+```bash
+sudo PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple bash deploy/deploy-server.sh
+```
+
+有域名时：
+
+```bash
+sudo SERVER_NAME=your.domain.com bash deploy/deploy-server.sh
+```
+
+脚本会自动：安装 Python/Node/Nginx → 构建前端 → 配置 systemd 后端 → Nginx 反代。  
+部署完成后浏览器访问 **`http://服务器公网IP`** 即可。
+
+从 GitHub 克隆并一键部署（整行复制）：
+
+```bash
+git clone https://github.com/MermaidLiu/LingX-Agent.git && cd LingX-Agent && sudo PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple bash deploy/deploy-server.sh
+```
+
 启动后访问：
 
 - 前端工作台：http://127.0.0.1:5173

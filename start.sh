@@ -44,8 +44,8 @@ setup_backend() {
   fi
   # shellcheck disable=SC1091
   source "$VENV_DIR/bin/activate"
-  pip install -q --upgrade pip
-  pip install -q -r "$BACKEND_DIR/requirements.txt"
+  python3 -m pip install -q --upgrade pip --default-timeout=120 ${PIP_INDEX_URL:+-i "$PIP_INDEX_URL"}
+  python3 -m pip install -q --default-timeout=120 ${PIP_INDEX_URL:+-i "$PIP_INDEX_URL"} -r "$BACKEND_DIR/requirements.txt"
   if [[ ! -f "$BACKEND_DIR/.env" && -f "$BACKEND_DIR/.env.example" ]]; then
     cp "$BACKEND_DIR/.env.example" "$BACKEND_DIR/.env"
     log "已从 .env.example 创建 backend/.env"
@@ -63,7 +63,7 @@ start_backend() {
   if port_busy "$BACKEND_PORT"; then
     die "端口 $BACKEND_PORT 已被占用。可执行: kill \$(lsof -t -i :$BACKEND_PORT) 或设置 BACKEND_PORT=8001"
   fi
-  log "启动后端 http://${BACKEND_HOST}:${BACKEND_PORT}"
+  log "启动后端 http://${BACKEND_HOST}:${BACKEND_PORT}（首次加载可能需 1–2 分钟）"
   (
     cd "$BACKEND_DIR"
     # shellcheck disable=SC1091
@@ -72,14 +72,17 @@ start_backend() {
   ) &
   BACKEND_PID=$!
 
-  for _ in $(seq 1 60); do
+  for i in $(seq 1 180); do
     if curl -sf "http://${BACKEND_HOST}:${BACKEND_PORT}/health" >/dev/null 2>&1; then
       log "后端就绪 ✓"
       return
     fi
+    if (( i % 15 == 0 )); then
+      log "仍在等待后端就绪… (${i}s)"
+    fi
     sleep 1
   done
-  die "后端启动超时，请检查日志"
+  die "后端启动超时（180s），请手动运行: cd backend && source ../.venv/bin/activate && uvicorn app.main:app --reload --port 8000"
 }
 
 start_frontend() {
