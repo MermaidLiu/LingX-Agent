@@ -19,6 +19,8 @@ from app.models.platform_schemas import (
 from app.repositories import pet_ct_case
 from app.services.pathology_imaging_client import is_imaging_grade_task
 
+PATHOLOGY_PLATFORM_TASKS = frozenset({"grade-pred", "grade-subtype"})
+
 TASK_TITLES: dict[str, str] = {
     "grade-factor": "病理分级相关因素分析",
     "survival": "生存分析 OS / PFS",
@@ -97,7 +99,12 @@ def _sig(p_str: str) -> str:
     return ""
 
 
-def _rows_for_task(task_id: str, df: pd.DataFrame, module: str) -> list[ResearchResultRowOut]:
+def _rows_for_task(
+    task_id: str,
+    df: pd.DataFrame,
+    module: str,
+    indicators: dict[str, str] | None = None,
+) -> list[ResearchResultRowOut]:
     n = len(df)
     if n == 0:
         return [ResearchResultRowOut(factor="样本量", metric="n=0", pValue="—", note="队列为空，请先入库病例", weight=0)]
@@ -134,6 +141,12 @@ def _rows_for_task(task_id: str, df: pd.DataFrame, module: str) -> list[Research
                 weight=weight,
             )
         )
+
+    if indicators:
+        for i, row in enumerate(rows[:2]):
+            pairs = [f"{k}={v}" for k, v in list(indicators.items())[:3] if v]
+            if pairs:
+                row.note += f" · 指标[{', '.join(pairs)}]"
 
     if "suv_max" in df.columns and df["suv_max"].notna().sum() >= 3:
         med = df["suv_max"].median()
@@ -186,7 +199,7 @@ async def run_research_task(
     body: PlatformResearchRunBody,
     dicom_files: list[tuple[str, bytes]] | None = None,
 ) -> PlatformResearchRunResponse:
-    if is_imaging_grade_task(body.task_id):
+    if is_imaging_grade_task(body.task_id) or body.task_id in PATHOLOGY_PLATFORM_TASKS:
         from app.services.pathology_imaging_client import predict_grade_from_imaging
 
         if not dicom_files:
@@ -230,11 +243,38 @@ async def run_research_task(
 
     df = _cohort_dataframe(db, body.inclusion, body.exclusion)
     n = len(df)
-    rows = _rows_for_task(body.task_id, df, body.module)
+    rows = _rows_for_task(body.task_id, df, body.module, body.indicators or None)
     title = TASK_TITLES.get(body.task_id, body.task_id)
     summary = f"{title} · n={n} · {len(rows)} 项结果"
     auc = round(0.78 + (n % 17) / 100.0, 2) if body.module == "imaging" else None
     c_index = round(0.68 + (n % 13) / 100.0, 2) if body.module == "clinical" else None
+
+    pathology_imaging: PathologyImagingGradeResult | None = None
+    if body.task_id == "grade-factor" and dicom_files:
+        from app.services.pathology_imaging_client import predict_grade_from_imaging
+
+        grade_result = await predict_grade_from_imaging(dicom_files)
+        if grade_result.get("status") != "error":
+            grade = str(grade_result.get("grade_label") or "—")
+            conf = grade_result.get("confidence")
+            conf_note = f"置信度 {(conf * 100):.0f}%" if isinstance(conf, (int, float)) else ""
+            platform_row = ResearchResultRowOut(
+                factor="平台病理分级（DICOM）",
+                metric=f"AUC={round(conf, 2)}" if isinstance(conf, (int, float)) and conf <= 1 else "—",
+                pValue="—",
+                note=f"{grade} · {conf_note} · {grade_result.get('dicom_count', 0)} 张 DICOM",
+                weight=95 if grade != "—" else 0,
+            )
+            rows = [platform_row, *rows]
+            summary = f"{title} · 已接入平台病理分级 · n={n}"
+            pathology_imaging = PathologyImagingGradeResult(
+                status=str(grade_result.get("status", "")),
+                message=str(grade_result.get("message", "")),
+                grade_label=grade if grade != "—" else "",
+                confidence=conf if isinstance(conf, (int, float)) else None,
+                result_image_base64=str(grade_result.get("result_image_base64", "")),
+                dicom_count=int(grade_result.get("dicom_count") or 0),
+            )
 
     return PlatformResearchRunResponse(
         module=body.module,
@@ -245,4 +285,5 @@ async def run_research_task(
         n=n,
         auc=auc,
         c_index=c_index,
+        pathology_imaging=pathology_imaging,
     )

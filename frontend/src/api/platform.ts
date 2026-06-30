@@ -140,6 +140,7 @@ export async function platformRunResearch(body: {
   exclusion?: string;
   outcome?: string;
   split?: string;
+  indicators?: Record<string, string>;
 }) {
   const { data } = await api.post<{
     module: string;
@@ -153,6 +154,28 @@ export async function platformRunResearch(body: {
     pathology_imaging_pending?: boolean;
     pathology_imaging?: PathologyImagingGradeResult | null;
   }>("/api/v1/platform/research/run", body);
+  return data;
+}
+
+export async function platformRadiomicsRun(
+  files: File[],
+  opts: { targetField: string; targetValue: string; roiDefined: boolean; indicators?: Record<string, string> },
+) {
+  const form = new FormData();
+  files.forEach((f) => form.append("files", f));
+  form.append("target_field", opts.targetField);
+  form.append("target_value", opts.targetValue);
+  form.append("roi_defined", String(opts.roiDefined));
+  form.append("indicators_json", JSON.stringify(opts.indicators ?? {}));
+  const { data } = await api.post<{
+    rows: ResearchResultRow[];
+    summary: string;
+    auc?: number;
+    task_title: string;
+  }>("/api/v1/platform/research/radiomics-run", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 300000,
+  });
   return data;
 }
 
@@ -171,11 +194,21 @@ export async function platformResearchGradeRun(
   files: File[],
   module: "clinical" | "imaging" | "multimodal",
   taskId: string,
+  opts?: {
+    inclusion?: string;
+    exclusion?: string;
+    outcome?: string;
+    indicators?: Record<string, string>;
+  },
 ) {
   const form = new FormData();
   files.forEach((f) => form.append("files", f));
   form.append("module", module);
   form.append("task_id", taskId);
+  if (opts?.inclusion) form.append("inclusion", opts.inclusion);
+  if (opts?.exclusion) form.append("exclusion", opts.exclusion);
+  if (opts?.outcome) form.append("outcome", opts.outcome);
+  form.append("indicators_json", JSON.stringify(opts?.indicators ?? {}));
   const { data } = await api.post<{
     module: string;
     task_id: string;

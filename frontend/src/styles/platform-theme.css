@@ -854,3 +854,18 @@ body {
   border: 1px solid var(--pmp-border);
   margin: 0;
 }
+
+.pmp-radiomics-viewer {
+  width: 100%;
+  min-height: 180px;
+  border-radius: 8px;
+  border: 1px dashed #94a3b8;
+  background: #0f172a;
+  overflow: hidden;
+}
+
+.pmp-radiomics-viewer-placeholder {
+  padding: 24px 16px;
+  text-align: center;
+  color: #e2e8f0;
+}

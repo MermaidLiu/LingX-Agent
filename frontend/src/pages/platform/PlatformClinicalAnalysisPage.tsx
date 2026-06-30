@@ -1,4 +1,5 @@
 import ResearchWorkbench from "../../components/platform/ResearchWorkbench";
+import { CLINICAL_INDICATOR_SPECS } from "../../data/indicatorSpecs";
 import {
   CLINICAL_FIELDS,
   CLINICAL_METHODS,
@@ -19,6 +20,8 @@ export default function PlatformClinicalAnalysisPage() {
       tasks={CLINICAL_TASKS}
       methods={CLINICAL_METHODS}
       resultMap={CLINICAL_RESULTS}
+      indicatorSpecs={CLINICAL_INDICATOR_SPECS}
+      enablePathologyPlatform
       stats={[
         { label: "病例数", value: "12,846" },
         { label: "变量数", value: "68" },

@@ -1,4 +1,5 @@
 import ResearchWorkbench from "../../components/platform/ResearchWorkbench";
+import { IMAGING_INDICATOR_SPECS } from "../../data/indicatorSpecs";
 import {
   IMAGING_FIELDS,
   IMAGING_METHODS,
@@ -19,6 +20,7 @@ export default function PlatformImagingAnalysisPage() {
       tasks={IMAGING_TASKS}
       methods={IMAGING_METHODS}
       resultMap={IMAGING_RESULTS}
+      indicatorSpecs={IMAGING_INDICATOR_SPECS}
       stats={[
         { label: "影像数", value: "76,300" },
         { label: "配对病例", value: "9,420" },

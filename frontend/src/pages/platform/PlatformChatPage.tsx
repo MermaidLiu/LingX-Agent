@@ -12,7 +12,6 @@ import type { UploadFile } from "antd/es/upload/interface";
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { platformChatAnalyze, platformChatSave } from "../../api/platform";
-import AnalysisIntentPanel, { type AnalysisIntent } from "../../components/platform/AnalysisIntentPanel";
 import { markSaved, loadPlatformSession, setAnalysisResult } from "../../lib/platformSession";
 
 const { Text, Paragraph } = Typography;
@@ -64,20 +63,12 @@ function formatDiagnosisReply(
     .join("\n");
 }
 
-const DEFAULT_INTENT: AnalysisIntent = {
-  question: "请基于上传的多模态数据，给出怀疑疾病及鉴别诊断。",
-  variables: "影像征象、病理描述、肿瘤标志物、临床分期",
-  outcome: "grade",
-  notes: "",
-};
-
 export default function PlatformChatPage() {
   const { message } = App.useApp();
   const nav = useNavigate();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<UploadFile[]>([]);
-  const [intent, setIntent] = useState<AnalysisIntent>(DEFAULT_INTENT);
   const [loading, setLoading] = useState(false);
   const [savedToDb, setSavedToDb] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -85,7 +76,7 @@ export default function PlatformChatPage() {
       id: "welcome",
       role: "assistant",
       content:
-        "您好，我是 PMP 智能助手。请上传 Excel、ZIP、PDF 或 Word 文件，并在下方填写分析需求，我将进行多模态智能分析；分析完成后可一键加入数据库。",
+        "您好，我是 PMP 智能助手。请上传 Excel、ZIP、PDF、Word 或 DICOM 文件，并在下方描述分析需求，我将进行多模态智能分析；分析完成后可一键加入数据库。",
     },
   ]);
 
@@ -96,14 +87,14 @@ export default function PlatformChatPage() {
   async function handleSend() {
     const text = input.trim();
     if (!text && files.length === 0) {
-      message.warning("请输入问题或上传文件");
+      message.warning("请输入分析需求或上传文件");
       return;
     }
 
     const userMsg: ChatMessage = {
       id: `u-${Date.now()}`,
       role: "user",
-      content: text || intent.question,
+      content: text || "（已上传文件，请分析）",
       files: files.map((f) => ({ name: f.name, icon: fileIcon(f.name) })),
     };
 
@@ -116,8 +107,12 @@ export default function PlatformChatPage() {
     scrollBottom();
 
     try {
-      const mergedIntent = { ...intent, question: text || intent.question };
-      const result = await platformChatAnalyze(uploadFiles, mergedIntent);
+      const result = await platformChatAnalyze(uploadFiles, {
+        question: text || "请基于上传的数据给出分析结论与建议。",
+        variables: "",
+        outcome: "grade",
+        notes: "",
+      });
       setAnalysisResult(result);
 
       const extraNotes: string[] = [];
@@ -132,7 +127,7 @@ export default function PlatformChatPage() {
         id: `a-${Date.now()}`,
         role: "assistant",
         analysisDone: true,
-        content: formatDiagnosisReply(result.diagnosis, mergedIntent.question, extraNotes),
+        content: formatDiagnosisReply(result.diagnosis, text, extraNotes),
         gradeImage: result.pathology_imaging?.result_image_base64 || undefined,
       };
       setMessages((prev) => [...prev, aiMsg]);
@@ -237,8 +232,6 @@ export default function PlatformChatPage() {
         </div>
 
         <div className="pmp-gpt-composer-wrap">
-          <AnalysisIntentPanel value={intent} onChange={setIntent} compact />
-
           {files.length > 0 ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
               {files.map((f) => (
@@ -259,14 +252,14 @@ export default function PlatformChatPage() {
                 return false;
               }}
             >
-              <Button type="text" title="上传 Excel / ZIP / PDF / Word">
+              <Button type="text" title="上传 Excel / ZIP / PDF / Word / DICOM">
                 📎
               </Button>
             </Upload>
             <textarea
               className="pmp-gpt-input"
-              rows={2}
-              placeholder="输入问题，或描述需要分析的内容…"
+              rows={3}
+              placeholder="描述分析需求，例如：请基于上传的影像指出病变，或比较高级别与低级别患者的生存差异…"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -281,7 +274,7 @@ export default function PlatformChatPage() {
             </Button>
           </div>
           <Text type="secondary" style={{ fontSize: 11, display: "block", marginTop: 8, textAlign: "center" }}>
-            支持 Excel · ZIP · PDF · Word · 分析完成后入库
+            支持 Excel · ZIP · PDF · Word · DICOM · 分析完成后入库
           </Text>
         </div>
       </div>

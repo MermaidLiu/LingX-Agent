@@ -4,8 +4,12 @@ import type { UploadFile } from "antd/es/upload/interface";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { ModuleAnalysisResult, ResearchResultRow, ResearchTask } from "../../data/researchWorkbenchMock";
+import type { IndicatorSpec } from "../../data/indicatorSpecs";
 import { platformResearchGradeRun, platformRunResearch } from "../../api/platform";
+import type { PathologyImagingGradeResult } from "../../api/platform";
 import { saveModuleResult } from "../../lib/researchModuleResults";
+import IndicatorInputPanel from "./IndicatorInputPanel";
+import RadiomicsPipeline from "./RadiomicsPipeline";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -23,11 +27,14 @@ type Props = {
   stats: { label: string; value: string }[];
   outputs: string[];
   followUps: string[];
+  indicatorSpecs?: Record<string, IndicatorSpec>;
+  enablePathologyPlatform?: boolean;
   extraCenter?: ReactNode;
   linkedBanner?: ReactNode;
 };
 
-const GRADE_TASKS = new Set(["grade-pred", "grade-subtype"]);
+const GRADE_DICOM_TASKS = new Set(["grade-pred", "grade-subtype"]);
+const RADIOMICS_TASKS = new Set(["radiomics", "deeplearn"]);
 
 const THEME = {
   navy: { accent: "#1e3a5f", light: "#eef4fb", tag: "blue" },
@@ -36,6 +43,7 @@ const THEME = {
 };
 
 function BarChart({ rows }: { rows: ResearchResultRow[] }) {
+  if (!rows.length) return null;
   const max = Math.max(...rows.map((r) => r.weight ?? 0), 1);
   return (
     <div style={{ marginTop: 12 }}>
@@ -64,6 +72,41 @@ function BarChart({ rows }: { rows: ResearchResultRow[] }) {
   );
 }
 
+function PathologyPlatformPanel({
+  data,
+  imageBase64,
+  light,
+}: {
+  data: PathologyImagingGradeResult;
+  imageBase64: string | null;
+  light: string;
+}) {
+  return (
+    <div style={{ marginBottom: 16, padding: 12, background: light, borderRadius: 8, border: "1px solid #dbeafe" }}>
+      <Text strong style={{ fontSize: 13, display: "block", marginBottom: 8 }}>
+        平台病理分级结果
+      </Text>
+      <Space wrap style={{ marginBottom: 8 }}>
+        <Tag color="blue">{data.grade_label || "—"}</Tag>
+        {data.confidence != null ? <Tag>置信度 {(data.confidence * 100).toFixed(0)}%</Tag> : null}
+        <Tag>{data.dicom_count} 张 DICOM</Tag>
+      </Space>
+      {data.message ? (
+        <Paragraph type="secondary" style={{ fontSize: 12, margin: "0 0 8px" }}>
+          {data.message}
+        </Paragraph>
+      ) : null}
+      {imageBase64 ? (
+        <img
+          src={`data:image/png;base64,${imageBase64}`}
+          alt="平台病理分级可视化"
+          style={{ maxWidth: "100%", borderRadius: 8, border: "1px solid #e8edf5" }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 export default function ResearchWorkbench({
   moduleKey,
   title,
@@ -78,12 +121,15 @@ export default function ResearchWorkbench({
   stats,
   outputs,
   followUps,
+  indicatorSpecs = {},
+  enablePathologyPlatform = false,
   extraCenter,
   linkedBanner,
 }: Props) {
   const { message } = App.useApp();
   const colors = THEME[theme];
   const [selectedFields, setSelectedFields] = useState<string[]>(fields.slice(0, 6));
+  const [indicatorValues, setIndicatorValues] = useState<Record<string, string>>({});
   const [taskId, setTaskId] = useState(tasks[0].id);
   const [inclusion, setInclusion] = useState("");
   const [exclusion, setExclusion] = useState("");
@@ -91,25 +137,58 @@ export default function ResearchWorkbench({
   const [split, setSplit] = useState("");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<ResearchResultRow[] | null>(null);
+  const [resultSummary, setResultSummary] = useState("");
   const [saved, setSaved] = useState(false);
   const [dicomFiles, setDicomFiles] = useState<UploadFile[]>([]);
   const [gradeImage, setGradeImage] = useState<string | null>(null);
+  const [pathologyPlatform, setPathologyPlatform] = useState<PathologyImagingGradeResult | null>(null);
 
   const task = tasks.find((t) => t.id === taskId) ?? tasks[0];
-  const isGradeTask = GRADE_TASKS.has(taskId);
-  const previewRows = result ?? resultMap[taskId] ?? [];
+  const isGradeDicomTask = GRADE_DICOM_TASKS.has(taskId);
+  const isRadiomicsTask = moduleKey === "imaging" && RADIOMICS_TASKS.has(taskId);
+  const showOptionalDicom =
+    enablePathologyPlatform && moduleKey === "clinical" && taskId === "grade-factor";
+  const useLiveResultsOnly = isGradeDicomTask || isRadiomicsTask || Boolean(result);
+  const previewRows = result ?? (useLiveResultsOnly ? [] : resultMap[taskId] ?? []);
 
   const toggleField = (f: string) => {
     setSelectedFields((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
   };
 
+  function handleRadiomicsComplete(rows: ResearchResultRow[], summary: string, auc?: number) {
+    setResult(rows);
+    setResultSummary(summary);
+    setSaved(false);
+    const payload: ModuleAnalysisResult = {
+      module: moduleKey,
+      taskId,
+      taskTitle: task.title,
+      ranAt: new Date().toISOString(),
+      rows,
+      summary,
+      auc,
+    };
+    saveModuleResult(payload);
+    setSaved(true);
+  }
+
   async function runAnalysis() {
+    if (isRadiomicsTask) {
+      message.info("请使用下方「影像组学流程」完成上传、勾画 ROI 与组学分析");
+      return;
+    }
+
     setRunning(true);
     setSaved(false);
     setGradeImage(null);
+    setPathologyPlatform(null);
     try {
+      const indicators = Object.fromEntries(
+        Object.entries(indicatorValues).filter(([, v]) => v.trim()),
+      );
+
       let res;
-      if (isGradeTask) {
+      if (isGradeDicomTask || (showOptionalDicom && dicomFiles.length > 0)) {
         if (dicomFiles.length === 0) {
           message.warning("请先上传 DICOM 文件（.dcm / .dicom 或 ZIP）");
           setRunning(false);
@@ -119,6 +198,9 @@ export default function ResearchWorkbench({
           dicomFiles.map((f) => f as unknown as File),
           moduleKey,
           taskId,
+          showOptionalDicom
+            ? { inclusion, exclusion, outcome, indicators }
+            : undefined,
         );
       } else {
         res = await platformRunResearch({
@@ -129,15 +211,21 @@ export default function ResearchWorkbench({
           exclusion,
           outcome,
           split,
+          indicators,
         });
       }
+
       if (res.pathology_imaging_pending) {
         message.warning(res.summary);
       }
       const rows = res.rows as ResearchResultRow[];
       setResult(rows);
+      setResultSummary(res.summary);
       if (res.pathology_imaging?.result_image_base64) {
         setGradeImage(res.pathology_imaging.result_image_base64);
+      }
+      if (res.pathology_imaging) {
+        setPathologyPlatform(res.pathology_imaging);
       }
       const payload: ModuleAnalysisResult = {
         module: moduleKey,
@@ -154,8 +242,9 @@ export default function ResearchWorkbench({
       message.success(`${res.task_title} 分析完成，结果已保存`);
     } catch (e) {
       message.error(e instanceof Error ? e.message : "分析失败");
-      const rows = resultMap[taskId] ?? [];
-      setResult(rows);
+      if (!isGradeDicomTask && !isRadiomicsTask) {
+        setResult(resultMap[taskId] ?? []);
+      }
     } finally {
       setRunning(false);
     }
@@ -194,7 +283,6 @@ export default function ResearchWorkbench({
       {linkedBanner}
 
       <div className="pmp-research-wb-grid">
-        {/* 左：数据与队列 */}
         <div className="pmp-card pmp-research-wb-col">
           <div className="pmp-panel-title">{dataTitle}</div>
           <Text type="secondary" style={{ fontSize: 12 }}>
@@ -212,7 +300,22 @@ export default function ResearchWorkbench({
               </Tag>
             ))}
           </div>
-          <div className="pmp-panel-title">队列筛选</div>
+
+          {Object.keys(indicatorSpecs).length > 0 ? (
+            <>
+              <div className="pmp-panel-title">指标录入</div>
+              <IndicatorInputPanel
+                selectedFields={selectedFields}
+                specs={indicatorSpecs}
+                values={indicatorValues}
+                onChange={(field, value) => setIndicatorValues((prev) => ({ ...prev, [field]: value }))}
+              />
+            </>
+          ) : null}
+
+          <div className="pmp-panel-title" style={{ marginTop: 16 }}>
+            队列筛选
+          </div>
           <Space direction="vertical" style={{ width: "100%" }} size={8}>
             <Input placeholder="纳入标准" value={inclusion} onChange={(e) => setInclusion(e.target.value)} />
             <Input placeholder="排除标准" value={exclusion} onChange={(e) => setExclusion(e.target.value)} />
@@ -225,7 +328,6 @@ export default function ResearchWorkbench({
           </Space>
         </div>
 
-        {/* 中：任务与结果 */}
         <div className="pmp-card pmp-research-wb-col pmp-research-wb-col--main">
           <div className="pmp-panel-title">选择分析任务</div>
           <div className="pmp-task-grid">
@@ -238,8 +340,10 @@ export default function ResearchWorkbench({
                 onClick={() => {
                   setTaskId(t.id);
                   setResult(null);
+                  setResultSummary("");
                   setSaved(false);
                   setGradeImage(null);
+                  setPathologyPlatform(null);
                   setDicomFiles([]);
                 }}
               >
@@ -264,10 +368,16 @@ export default function ResearchWorkbench({
 
           {extraCenter}
 
-          {isGradeTask ? (
+          {isRadiomicsTask ? (
+            <RadiomicsPipeline accent={colors.accent} light={colors.light} onComplete={handleRadiomicsComplete} />
+          ) : null}
+
+          {isGradeDicomTask || showOptionalDicom ? (
             <div style={{ marginBottom: 16, padding: 12, background: colors.light, borderRadius: 8 }}>
               <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
-                上传 DICOM 调用病理分级模型（支持 .dcm / .dicom / ZIP）
+                {isGradeDicomTask
+                  ? "上传 DICOM 调用病理分级模型（支持 .dcm / .dicom / ZIP）"
+                  : "可选：上传 DICOM 接入同学平台病理分级，与队列因素分析一并展示"}
               </Text>
               <Upload
                 multiple
@@ -285,19 +395,32 @@ export default function ResearchWorkbench({
             </div>
           ) : null}
 
+          {pathologyPlatform ? (
+            <PathologyPlatformPanel data={pathologyPlatform} imageBase64={gradeImage} light={colors.light} />
+          ) : null}
+
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <div className="pmp-panel-title" style={{ margin: 0 }}>
-              分析结果{result ? "（已运行）" : "（预览）"}
+              分析结果{result ? "（已运行）" : isRadiomicsTask || isGradeDicomTask ? "" : "（预览）"}
             </div>
-            <Button type="primary" loading={running} onClick={runAnalysis}>
-              运行分析
-            </Button>
+            {!isRadiomicsTask ? (
+              <Button type="primary" loading={running} onClick={runAnalysis}>
+                运行分析
+              </Button>
+            ) : null}
           </div>
+
+          {resultSummary ? (
+            <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+              {resultSummary}
+            </Paragraph>
+          ) : null}
 
           <Table
             size="small"
             pagination={false}
             rowKey="factor"
+            locale={{ emptyText: isGradeDicomTask ? "请上传 DICOM 并运行分析" : "暂无结果，点击运行分析" }}
             dataSource={previewRows}
             columns={[
               { title: "因素 / 特征", dataIndex: "factor" },
@@ -307,7 +430,7 @@ export default function ResearchWorkbench({
             ]}
           />
           <BarChart rows={previewRows} />
-          {gradeImage ? (
+          {gradeImage && !pathologyPlatform ? (
             <img
               src={`data:image/png;base64,${gradeImage}`}
               alt="病理分级可视化"
@@ -321,7 +444,6 @@ export default function ResearchWorkbench({
           ) : null}
         </div>
 
-        {/* 右：输出与追问 */}
         <div className="pmp-card pmp-research-wb-col">
           <div className="pmp-panel-title">结果与输出</div>
           <div className="pmp-wb-stats">

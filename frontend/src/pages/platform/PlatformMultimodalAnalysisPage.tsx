@@ -2,6 +2,7 @@ import { Alert, Space, Table, Tag, Typography } from "antd";
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import ResearchWorkbench from "../../components/platform/ResearchWorkbench";
+import { MULTIMODAL_INDICATOR_SPECS } from "../../data/indicatorSpecs";
 import {
   MODALITY_CONTRIBUTION,
   MULTIMODAL_FIELDS,
@@ -147,6 +148,7 @@ export default function PlatformMultimodalAnalysisPage() {
       tasks={MULTIMODAL_TASKS}
       methods={MULTIMODAL_METHODS}
       resultMap={fusionResults}
+      indicatorSpecs={MULTIMODAL_INDICATOR_SPECS}
       stats={[
         { label: "总病例", value: "38,520" },
         { label: "多模态配对", value: "9,420" },

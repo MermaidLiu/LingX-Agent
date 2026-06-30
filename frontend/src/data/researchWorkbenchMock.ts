@@ -47,6 +47,8 @@ export const IMAGING_FIELDS = [
   "深度特征",
   "EGFR",
   "HER2",
+  "病理分级",
+  "SUVmax",
 ];
 
 export const MULTIMODAL_FIELDS = [

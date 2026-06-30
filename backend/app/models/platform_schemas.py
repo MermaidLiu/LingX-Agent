@@ -110,7 +110,7 @@ class PlatformResearchRunBody(BaseModel):
     inclusion: str = ""
     exclusion: str = ""
     outcome: str = ""
-    split: str = ""
+    indicators: dict[str, str] = Field(default_factory=dict)
 
 
 class PlatformResearchRunResponse(BaseModel):

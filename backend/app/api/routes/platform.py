@@ -168,13 +168,57 @@ async def platform_research_grade_run(
     module: str = Form("imaging"),
     task_id: str = Form("grade-pred"),
     files: list[UploadFile] = File(...),
+    inclusion: str = Form(""),
+    exclusion: str = Form(""),
+    outcome: str = Form(""),
+    indicators_json: str = Form("{}"),
     db: Session = Depends(get_db),
 ) -> PlatformResearchRunResponse:
     """Research workbench: run pathology grade prediction with DICOM upload."""
+    import json
+
     file_items = [(uf.filename or "upload.dcm", await uf.read()) for uf in files]
     mod = module if module in ("clinical", "imaging", "multimodal") else "imaging"
-    body = PlatformResearchRunBody(module=mod, task_id=task_id)  # type: ignore[arg-type]
+    try:
+        indicators = json.loads(indicators_json) if indicators_json else {}
+    except json.JSONDecodeError:
+        indicators = {}
+    body = PlatformResearchRunBody(
+        module=mod,  # type: ignore[arg-type]
+        task_id=task_id,
+        inclusion=inclusion,
+        exclusion=exclusion,
+        outcome=outcome,
+        indicators=indicators,
+    )
     return await run_research_task(db, body, dicom_files=file_items)
+
+
+@router.post("/research/radiomics-run", response_model=PlatformResearchRunResponse)
+async def platform_radiomics_run(
+    files: list[UploadFile] = File(...),
+    target_field: str = Form("病理分级"),
+    target_value: str = Form("高级别"),
+    roi_defined: bool = Form(True),
+    indicators_json: str = Form("{}"),
+) -> PlatformResearchRunResponse:
+    from app.services.platform_radiomics import run_radiomics_analysis
+    import json
+
+    names = [uf.filename or "image.nii.gz" for uf in files]
+    for uf in files:
+        await uf.read()
+    try:
+        indicators = json.loads(indicators_json) if indicators_json else {}
+    except json.JSONDecodeError:
+        indicators = {}
+    return run_radiomics_analysis(
+        filenames=names,
+        target_field=target_field,
+        target_value=target_value,
+        roi_defined=roi_defined,
+        indicators=indicators,
+    )
 
 
 @router.post("/knowledge/search", response_model=PlatformKnowledgeSearchResponse)
