@@ -166,7 +166,7 @@ def build_grade_task_response(
     conf_note = f"置信度 {(conf * 100):.0f}%" if isinstance(conf, (int, float)) else ""
     rows = [
         ResearchResultRowOut(
-            factor="影像病理分级",
+            factor="影像诊断分析",
             metric=metric,
             pValue="—",
             note=f"{grade} · {conf_note} · {grade_result.get('dicom_count', 0)} 张 DICOM",
@@ -216,7 +216,7 @@ async def run_research_task(
                         weight=0,
                     )
                 ],
-                summary="预测病理分级需要上传 DICOM 文件",
+                summary="预测分析需要上传 DICOM 文件",
                 n=0,
                 pathology_imaging_pending=True,
             )
@@ -228,14 +228,14 @@ async def run_research_task(
                 task_title=TASK_TITLES.get(body.task_id, body.task_id),
                 rows=[
                     ResearchResultRowOut(
-                        factor="外部病理分级接口",
+                        factor="影像诊断分析接口",
                         metric="—",
                         pValue="—",
                         note=str(grade_result.get("message", "调用失败")),
                         weight=0,
                     )
                 ],
-                summary=str(grade_result.get("message", "病理分级失败")),
+                summary=str(grade_result.get("message", "影像诊断分析失败")),
                 n=0,
                 pathology_imaging_pending=True,
             )
@@ -259,14 +259,14 @@ async def run_research_task(
             conf = grade_result.get("confidence")
             conf_note = f"置信度 {(conf * 100):.0f}%" if isinstance(conf, (int, float)) else ""
             platform_row = ResearchResultRowOut(
-                factor="平台病理分级（DICOM）",
+                factor="影像诊断分析（DICOM）",
                 metric=f"AUC={round(conf, 2)}" if isinstance(conf, (int, float)) and conf <= 1 else "—",
                 pValue="—",
                 note=f"{grade} · {conf_note} · {grade_result.get('dicom_count', 0)} 张 DICOM",
                 weight=95 if grade != "—" else 0,
             )
             rows = [platform_row, *rows]
-            summary = f"{title} · 已接入平台病理分级 · n={n}"
+            summary = f"{title} · 已接入影像诊断分析 · n={n}"
             pathology_imaging = PathologyImagingGradeResult(
                 status=str(grade_result.get("status", "")),
                 message=str(grade_result.get("message", "")),

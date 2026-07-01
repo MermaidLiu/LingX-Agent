@@ -84,7 +84,7 @@ function PathologyPlatformPanel({
   return (
     <div style={{ marginBottom: 16, padding: 12, background: light, borderRadius: 8, border: "1px solid #dbeafe" }}>
       <Text strong style={{ fontSize: 13, display: "block", marginBottom: 8 }}>
-        平台病理分级结果
+        影像诊断分析接口结果
       </Text>
       <Space wrap style={{ marginBottom: 8 }}>
         <Tag color="blue">{data.grade_label || "—"}</Tag>
@@ -99,7 +99,7 @@ function PathologyPlatformPanel({
       {imageBase64 ? (
         <img
           src={`data:image/png;base64,${imageBase64}`}
-          alt="平台病理分级可视化"
+          alt="影像诊断分析可视化"
           style={{ maxWidth: "100%", borderRadius: 8, border: "1px solid #e8edf5" }}
         />
       ) : null}
@@ -376,8 +376,8 @@ export default function ResearchWorkbench({
             <div style={{ marginBottom: 16, padding: 12, background: colors.light, borderRadius: 8 }}>
               <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
                 {isGradeDicomTask
-                  ? "上传 DICOM 调用病理分级模型（支持 .dcm / .dicom / ZIP）"
-                  : "可选：上传 DICOM 接入同学平台病理分级，与队列因素分析一并展示"}
+                  ? "上传 DICOM 调用影像诊断分析（支持 .dcm / .dicom / ZIP）"
+                  : "可选：上传 DICOM 调用影像诊断分析接口，与队列因素分析一并展示"}
               </Text>
               <Upload
                 multiple
@@ -433,7 +433,7 @@ export default function ResearchWorkbench({
           {gradeImage && !pathologyPlatform ? (
             <img
               src={`data:image/png;base64,${gradeImage}`}
-              alt="病理分级可视化"
+              alt="影像诊断分析可视化"
               style={{ maxWidth: "100%", marginTop: 12, borderRadius: 8, border: "1px solid #e8edf5" }}
             />
           ) : null}

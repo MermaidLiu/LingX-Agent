@@ -62,6 +62,9 @@ fi
 if ! grep -q '^PATHOLOGY_IMAGING_API_URL=' "$BACKEND_DIR/.env"; then
   echo "PATHOLOGY_IMAGING_API_URL=http://42.81.102.195:8000/ct-module/dicom/upload" >> "$BACKEND_DIR/.env"
 fi
+if ! grep -q '^PATHOLOGY_IMAGING_API_TIMEOUT=' "$BACKEND_DIR/.env"; then
+  echo "PATHOLOGY_IMAGING_API_TIMEOUT=420" >> "$BACKEND_DIR/.env"
+fi
 
 log "构建前端…"
 cd "$FRONTEND_DIR"
@@ -120,6 +123,9 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
     }
 
     location /health {

@@ -73,7 +73,7 @@ class Settings(BaseModel):
         )
     )
     pathology_imaging_api_timeout: float = Field(
-        default_factory=lambda: float(_e("PATHOLOGY_IMAGING_API_TIMEOUT", "300"))
+        default_factory=lambda: float(_e("PATHOLOGY_IMAGING_API_TIMEOUT", "420"))
     )
     cors_allow_origins: list[str] = Field(default_factory=_e_cors_origins)
 

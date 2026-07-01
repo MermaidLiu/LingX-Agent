@@ -1,10 +1,10 @@
 import { ExperimentOutlined, LeftOutlined, RightOutlined, UploadOutlined } from "@ant-design/icons";
 import { App, Button, Col, Input, Row, Space, Tag, Typography, Upload } from "antd";
 import type { UploadFile } from "antd/es/upload/interface";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { MOCK_PATIENTS, WORKFLOW_STEPS } from "../../data/platformMock";
-import { getPendingCaseFileNames, setPendingCaseFiles } from "../../lib/platformCaseUpload";
+import { getPendingCaseFileNames, setPendingCaseFiles, toNativeFiles } from "../../lib/platformCaseUpload";
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -28,10 +28,14 @@ export default function PlatformWorkflowPage() {
   }, []);
 
   function syncPendingFiles() {
-    const files = uploadFiles.map((f) => f as unknown as File);
+    const files = toNativeFiles(uploadFiles);
     setPendingCaseFiles(files);
     return files;
   }
+
+  useEffect(() => {
+    setPendingCaseFiles(uploadFiles);
+  }, [uploadFiles]);
 
   function goToAnalysis() {
     const files = syncPendingFiles();
@@ -114,7 +118,7 @@ export default function PlatformWorkflowPage() {
                 <div className="pmp-card" style={{ padding: 16 }}>
                   <div className="pmp-panel-title">说明</div>
                   <Paragraph type="secondary" style={{ fontSize: 13 }}>
-                    上传含 DICOM 的 ZIP 或 .dcm 文件后，点击「智能分析」将调用同学平台病理分级接口，并在智能分析页展示分级结果与可视化图像。
+                    上传含 DICOM 的 ZIP 或 .dcm 文件后，点击「智能分析」将调用影像诊断分析接口，并在本页展示分析结果与可视化图像。
                   </Paragraph>
                   {getPendingCaseFileNames().length > 0 ? (
                     <AlertLike text={`当前已缓存 ${getPendingCaseFileNames().length} 个文件，可直接进入智能分析`} />
@@ -129,10 +133,10 @@ export default function PlatformWorkflowPage() {
           <section className="pmp-section" style={{ background: "#f8fafc", borderRadius: 12 }}>
             <Title level={4}>
               <span className="pmp-section-num">2</span>
-              智能分析 · 病理分级
+              智能分析 · 影像诊断分析
             </Title>
             <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-              在工作台上传 DICOM 后，系统将调用同学平台接口进行病理分级分析。
+              在工作台上传 DICOM 后，系统将调用影像诊断分析接口进行影像分析。
             </Paragraph>
             <Button type="primary" size="large" icon={<ExperimentOutlined />} onClick={goToAnalysis}>
               进入智能分析

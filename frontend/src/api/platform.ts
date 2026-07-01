@@ -178,7 +178,7 @@ export async function platformRadiomicsRun(
     task_title: string;
   }>("/api/v1/platform/research/radiomics-run", form, {
     headers: { "Content-Type": "multipart/form-data" },
-    timeout: 300000,
+    timeout: 480000,
   });
   return data;
 }
@@ -189,7 +189,7 @@ export async function platformPathologyGrade(files: File[], returnBase64 = true)
   form.append("returnBase64", String(returnBase64));
   const { data } = await api.post<PathologyImagingGradeResult>("/api/v1/platform/pathology/grade", form, {
     headers: { "Content-Type": "multipart/form-data" },
-    timeout: 300000,
+    timeout: 480000,
   });
   return data;
 }
@@ -225,7 +225,7 @@ export async function platformResearchGradeRun(
     pathology_imaging?: PathologyImagingGradeResult | null;
   }>("/api/v1/platform/research/grade-run", form, {
     headers: { "Content-Type": "multipart/form-data" },
-    timeout: 300000,
+    timeout: 480000,
   });
   return data;
 }

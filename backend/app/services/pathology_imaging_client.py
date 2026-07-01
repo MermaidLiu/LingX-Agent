@@ -136,7 +136,7 @@ def parse_grading_response(data: Any) -> dict[str, Any]:
 
     msg_parts: list[str] = []
     if grade_label:
-        msg_parts.append(f"影像病理分级：{grade_label}")
+        msg_parts.append(f"影像诊断分析：{grade_label}")
     if confidence is not None:
         msg_parts.append(f"置信度 {(confidence * 100):.0f}%")
     api_msg = data.get("message") or data.get("msg") or data.get("detail")
@@ -145,7 +145,7 @@ def parse_grading_response(data: Any) -> dict[str, Any]:
 
     return {
         "status": "ok" if grade_label or image_b64 else "ok",
-        "message": " · ".join(msg_parts) if msg_parts else "DICOM 已提交至病理分级模型",
+        "message": " · ".join(msg_parts) if msg_parts else "DICOM 已提交至影像诊断分析服务",
         "grade_label": grade_label,
         "confidence": confidence,
         "result_image_base64": image_b64,
@@ -163,7 +163,7 @@ async def predict_grade_from_imaging(
     if not dicom_files:
         return {
             "status": "skipped",
-            "message": "未检测到 DICOM 文件（.dcm / .dicom 或含 DICOM 的 ZIP），跳过影像病理分级。",
+            "message": "未检测到 DICOM 文件（.dcm / .dicom 或含 DICOM 的 ZIP），跳过影像诊断分析。",
             "grade_label": "",
             "confidence": None,
             "result_image_base64": "",
@@ -172,7 +172,8 @@ async def predict_grade_from_imaging(
         }
 
     url = (settings.pathology_imaging_api_url or DEFAULT_PATHOLOGY_IMAGING_API_URL).strip()
-    timeout = settings.pathology_imaging_api_timeout
+    read_timeout = max(60.0, float(settings.pathology_imaging_api_timeout))
+    timeout = httpx.Timeout(connect=30.0, read=read_timeout, write=300.0, pool=30.0)
 
     multipart_files: list[tuple[str, tuple[str, bytes, str]]] = []
     for idx, (name, content) in enumerate(dicom_files):
@@ -188,11 +189,21 @@ async def predict_grade_from_imaging(
             resp = await client.post(url, files=multipart_files, data=form_data)
             resp.raise_for_status()
             payload = resp.json()
+    except httpx.TimeoutException:
+        return {
+            "status": "error",
+            "message": f"影像诊断分析接口超时（连接 30s / 读取 {int(read_timeout)}s），分析通常需约 5 分钟，请稍后重试或增大 PATHOLOGY_IMAGING_API_TIMEOUT：{url}",
+            "grade_label": "",
+            "confidence": None,
+            "result_image_base64": "",
+            "dicom_count": len(dicom_files),
+            "raw": {},
+        }
     except httpx.HTTPStatusError as e:
         detail = e.response.text[:500] if e.response is not None else str(e)
         return {
             "status": "error",
-            "message": f"病理分级接口 HTTP {e.response.status_code}：{detail}",
+            "message": f"影像诊断分析接口 HTTP {e.response.status_code}：{detail}",
             "grade_label": "",
             "confidence": None,
             "result_image_base64": "",
@@ -202,7 +213,7 @@ async def predict_grade_from_imaging(
     except Exception as e:
         return {
             "status": "error",
-            "message": f"病理分级接口调用失败：{e}",
+            "message": f"影像诊断分析接口调用失败：{e}",
             "grade_label": "",
             "confidence": None,
             "result_image_base64": "",

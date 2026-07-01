@@ -106,7 +106,7 @@ async def analyze_chat_uploads(
     if imaging_result.get("grade_label") and imaging_result.get("status") == "ok":
         conf = imaging_result.get("confidence")
         conf_txt = f"（置信度 {(conf * 100):.0f}%）" if conf is not None else ""
-        diagnosis.evidence.insert(0, f"影像病理分级：{imaging_result['grade_label']}{conf_txt}")
+        diagnosis.evidence.insert(0, f"影像诊断分析：{imaging_result['grade_label']}{conf_txt}")
 
     pathology_grade = PathologyImagingGradeResult(
         status=str(imaging_result.get("status", "")),

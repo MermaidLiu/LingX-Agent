@@ -93,8 +93,8 @@ export default function PlatformLayout() {
       "/knowledge": "科研延伸",
       "/knowledge/data": "数据分析",
       "/knowledge/library": "知识库",
-      "/analysis": "诊断分析",
-      "/analysis/diagnosis": "诊断分析",
+      "/analysis": "影像诊断分析",
+      "/analysis/diagnosis": "影像诊断分析",
       "/settings": "系统设置",
     };
     if (loc.pathname.startsWith("/research")) return "科研延伸";

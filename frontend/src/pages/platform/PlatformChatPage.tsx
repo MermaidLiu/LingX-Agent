@@ -203,7 +203,7 @@ export default function PlatformChatPage() {
                 {m.gradeImage ? (
                   <img
                     src={`data:image/png;base64,${m.gradeImage}`}
-                    alt="病理分级结果"
+                    alt="影像诊断分析结果"
                     style={{ maxWidth: "100%", marginTop: 12, borderRadius: 8, border: "1px solid #e8edf5" }}
                   />
                 ) : null}

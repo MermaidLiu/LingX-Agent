@@ -1,6 +1,6 @@
 import { ExperimentOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
 import { App, Alert, Button, Col, Collapse, Empty, Row, Space, Spin, Tag, Typography } from "antd";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { platformPathologyGrade } from "../../api/platform";
 import type { PathologyImagingGradeResult } from "../../api/platform";
@@ -31,9 +31,9 @@ function PathologyResultPanel({ result }: { result: PathologyImagingGradeResult 
     <Row gutter={[16, 16]}>
       <Col xs={24} lg={10}>
         <div className="pmp-card" style={{ padding: 20 }}>
-          <div className="pmp-panel-title">平台病理分级</div>
+          <div className="pmp-panel-title">影像诊断分析结果</div>
           {isError ? (
-            <Alert type="error" message={result.message || "接口调用失败"} showIcon style={{ marginBottom: 12 }} />
+            <Alert type="error" message={result.message || "影像诊断分析接口调用失败"} showIcon style={{ marginBottom: 12 }} />
           ) : isSkipped ? (
             <Alert type="warning" message={result.message} showIcon style={{ marginBottom: 12 }} />
           ) : (
@@ -64,7 +64,7 @@ function PathologyResultPanel({ result }: { result: PathologyImagingGradeResult 
           {result.result_image_base64 ? (
             <img
               src={`data:image/png;base64,${result.result_image_base64}`}
-              alt="病理分级可视化"
+              alt="影像诊断分析可视化"
               style={{ maxWidth: "100%", borderRadius: 8, border: "1px solid #e8edf5" }}
             />
           ) : (
@@ -80,7 +80,7 @@ function PathologyResultPanel({ result }: { result: PathologyImagingGradeResult 
               items={[
                 {
                   key: "raw",
-                  label: "接口原始返回（JSON）",
+                  label: "影像诊断分析接口原始返回（JSON）",
                   children: (
                     <pre className="pmp-kb-modal-pre" style={{ maxHeight: 360 }}>
                       {JSON.stringify(result.raw, null, 2)}
@@ -101,42 +101,57 @@ export default function PlatformDiagnosisPage() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PathologyImagingGradeResult | null>(getPathologyImagingOrNull());
   const [fileNames, setFileNames] = useState<string[]>(loadPlatformSession().uploadedFileNames);
+  const runningRef = useRef(false);
+  const autoRanRef = useRef(false);
 
-  const runPlatformAnalysis = useCallback(async (force = false) => {
+  async function runPathologyAnalysis(force = false) {
     const files = getPendingCaseFiles();
-    if (!files.length && !force) {
-      return;
-    }
     if (!files.length) {
-      message.warning("请先在「工作台」上传含 DICOM 的病例文件（.dcm / .dicom / ZIP）");
+      if (force) {
+        message.warning("请先在「工作台」上传含 DICOM 的病例文件（.dcm / .dicom / ZIP）");
+      }
       return;
     }
-
+    if (runningRef.current) return;
+    runningRef.current = true;
     setLoading(true);
     try {
       const res = await platformPathologyGrade(files);
       setResult(res);
-      setFileNames(getPendingCaseFileNames());
-      setPathologyImagingResult(res, getPendingCaseFileNames());
+      const names = getPendingCaseFileNames();
+      setFileNames(names);
+      setPathologyImagingResult(res, names);
       if (res.status === "error") {
-        message.error(res.message || "平台接口调用失败");
+        message.error(res.message || "影像诊断分析接口调用失败");
       } else if (res.status === "skipped") {
         message.warning(res.message);
       } else {
-        message.success("平台病理分级分析完成");
+        message.success("影像诊断分析完成");
       }
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "分析失败，请检查后端服务");
+      const errMsg = e instanceof Error ? e.message : "分析失败，请检查后端服务是否启动";
+      message.error(errMsg);
+      setResult({
+        status: "error",
+        message: errMsg,
+        grade_label: "",
+        confidence: null,
+        result_image_base64: "",
+        dicom_count: 0,
+      });
     } finally {
+      runningRef.current = false;
       setLoading(false);
     }
-  }, [message]);
+  }
 
   useEffect(() => {
-    if (hasPendingCaseFiles()) {
-      runPlatformAnalysis();
-    }
-  }, [runPlatformAnalysis]);
+    if (autoRanRef.current || !hasPendingCaseFiles()) return;
+    autoRanRef.current = true;
+    void runPathologyAnalysis();
+    // 仅进入页面时自动分析一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const hasResult = Boolean(result);
   const showEmpty = !loading && !result && !hasPendingCaseFiles();
@@ -147,10 +162,10 @@ export default function PlatformDiagnosisPage() {
         <div>
           <Title level={4} style={{ marginBottom: 8 }}>
             <ExperimentOutlined style={{ marginRight: 8, color: "#1677ff" }} />
-            智能分析 · 病理分级
+            智能分析 · 影像诊断分析
           </Title>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            调用同学平台 DICOM 病理分级接口，展示分级结果与可视化图像。
+            调用影像诊断分析接口处理 DICOM 影像，展示分析结果与可视化图像。
           </Paragraph>
         </div>
         <Space>
@@ -161,7 +176,7 @@ export default function PlatformDiagnosisPage() {
             type="primary"
             icon={<ReloadOutlined />}
             loading={loading}
-            onClick={() => runPlatformAnalysis(true)}
+            onClick={() => void runPathologyAnalysis(true)}
           >
             {hasResult ? "重新分析" : "开始分析"}
           </Button>
@@ -180,7 +195,10 @@ export default function PlatformDiagnosisPage() {
 
       {loading ? (
         <div style={{ textAlign: "center", padding: 48 }}>
-          <Spin size="large" tip="正在调用平台病理分级接口…" />
+          <Spin size="large" tip="正在调用影像诊断分析接口，请稍候…" />
+          <Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
+            分析通常需要约 5 分钟，请勿关闭页面；完成后将展示结果与可视化图像
+          </Paragraph>
         </div>
       ) : null}
 
