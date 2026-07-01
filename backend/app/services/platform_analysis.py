@@ -11,6 +11,7 @@ from typing import Any
 from app.models.domain import PetCtInterviewRecord, PetCtResearchExtensions
 from app.models.platform_schemas import AnalysisIntentBody, PathologyImagingGradeResult, PlatformChatAnalyzeResponse
 from app.services.data_extractor import DataExtractor
+from app.services.deepseek_chat import generate_chat_reply
 from app.services.disease_classifier import apply_classification
 from app.services.multimodal_fusion import fuse_patient_multimodal
 from app.services.pathology_imaging_client import predict_grade_from_imaging
@@ -116,6 +117,15 @@ async def analyze_chat_uploads(
         dicom_count=int(imaging_result.get("dicom_count") or 0),
     )
 
+    ai_reply, llm_model, llm_used = await generate_chat_reply(
+        intent=intent,
+        record=merged,
+        diagnosis=diagnosis,
+        fusion_summary=str(fusion.get("fusion_summary", "")),
+        ingest_notes=ingest_notes,
+        pathology_imaging=pathology_grade,
+    )
+
     return PlatformChatAnalyzeResponse(
         diagnosis=diagnosis,
         record=merged,
@@ -123,6 +133,9 @@ async def analyze_chat_uploads(
         ingest_notes=ingest_notes,
         pathology_imaging_status=pathology_grade.message,
         pathology_imaging=pathology_grade,
+        ai_reply=ai_reply,
+        llm_model=llm_model,
+        llm_used=llm_used,
     )
 
 

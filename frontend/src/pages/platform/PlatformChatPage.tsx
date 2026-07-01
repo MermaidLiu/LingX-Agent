@@ -25,6 +25,8 @@ type ChatMessage = {
   files?: { name: string; icon: React.ReactNode }[];
   analysisDone?: boolean;
   gradeImage?: string;
+  llmUsed?: boolean;
+  llmModel?: string;
 };
 
 function fileIcon(name: string) {
@@ -127,8 +129,12 @@ export default function PlatformChatPage() {
         id: `a-${Date.now()}`,
         role: "assistant",
         analysisDone: true,
-        content: formatDiagnosisReply(result.diagnosis, text, extraNotes),
+        content:
+          result.ai_reply?.trim() ||
+          formatDiagnosisReply(result.diagnosis, text, extraNotes),
         gradeImage: result.pathology_imaging?.result_image_base64 || undefined,
+        llmUsed: result.llm_used,
+        llmModel: result.llm_model,
       };
       setMessages((prev) => [...prev, aiMsg]);
     } catch (e) {
@@ -176,9 +182,10 @@ export default function PlatformChatPage() {
               ) : null}
               <div className="pmp-gpt-bubble">
                 {m.role === "assistant" && m.id !== "welcome" ? (
-                  <Text strong style={{ display: "block", marginBottom: 8 }}>
-                    PMP 智能体
-                  </Text>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <Text strong>PMP 智能体</Text>
+                    {m.llmUsed ? <Tag color="blue">DeepSeek · {m.llmModel || "deepseek-chat"}</Tag> : null}
+                  </div>
                 ) : null}
                 {m.files?.length ? (
                   <div className="pmp-file-grid" style={{ marginBottom: 10 }}>

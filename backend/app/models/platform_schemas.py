@@ -87,6 +87,9 @@ class PlatformChatAnalyzeResponse(BaseModel):
     ingest_notes: list[str] = Field(default_factory=list)
     pathology_imaging_status: str = ""
     pathology_imaging: PathologyImagingGradeResult | None = None
+    ai_reply: str = ""
+    llm_model: str = ""
+    llm_used: bool = False
 
 
 class PlatformSaveResponse(BaseModel):

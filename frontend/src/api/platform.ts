@@ -75,6 +75,9 @@ export type ChatAnalyzeResult = {
   ingest_notes: string[];
   pathology_imaging_status: string;
   pathology_imaging?: PathologyImagingGradeResult | null;
+  ai_reply?: string;
+  llm_model?: string;
+  llm_used?: boolean;
 };
 
 export type ResearchResultRow = {
