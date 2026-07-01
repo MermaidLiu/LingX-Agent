@@ -84,11 +84,8 @@ export default function RadiomicsPipeline({ accent, light, onComplete }: Props) 
             multiple
             accept=".nii,.gz,.nii.gz"
             fileList={niiFiles}
-            beforeUpload={(file) => {
-              setNiiFiles((prev) => [...prev, file as UploadFile]);
-              return false;
-            }}
-            onRemove={(f) => setNiiFiles((prev) => prev.filter((x) => x.uid !== f.uid))}
+            beforeUpload={() => false}
+            onChange={({ fileList }) => setNiiFiles(fileList)}
           >
             <Button>选择 NIfTI 文件</Button>
           </Upload>

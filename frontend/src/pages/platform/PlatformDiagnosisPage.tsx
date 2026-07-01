@@ -188,8 +188,8 @@ export default function PlatformDiagnosisPage() {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message={`已加载 ${fileNames.length} 个文件`}
-          description={fileNames.join(" · ")}
+          message={`已选择 ${fileNames.length} 个上传文件${result?.dicom_count ? ` · 解析出 ${result.dicom_count} 张 DICOM` : ""}`}
+          description={fileNames.length <= 8 ? fileNames.join(" · ") : `${fileNames.slice(0, 8).join(" · ")} … 等 ${fileNames.length} 个`}
         />
       ) : null}
 

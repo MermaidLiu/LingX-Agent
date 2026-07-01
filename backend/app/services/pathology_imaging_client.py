@@ -65,7 +65,16 @@ def collect_dicom_files(file_items: list[tuple[str, bytes]] | None) -> list[tupl
                             out.append((member, zf.read(member)))
             except zipfile.BadZipFile:
                 continue
-    return out
+    # 去重：避免前端重复上传同一文件导致数量翻倍
+    seen: set[tuple[str, int]] = set()
+    unique: list[tuple[str, bytes]] = []
+    for name, content in out:
+        key = (Path(name).name.lower(), len(content))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append((name, content))
+    return unique
 
 
 def _normalize_grade_text(raw: Any) -> str:

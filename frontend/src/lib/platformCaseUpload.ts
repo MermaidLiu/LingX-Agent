@@ -13,7 +13,14 @@ export function toNativeFiles(list: UploadFile[] | File[]): File[] {
 }
 
 export function setPendingCaseFiles(files: File[] | UploadFile[]) {
-  pendingFiles = toNativeFiles(files);
+  const native = toNativeFiles(files);
+  const seen = new Set<string>();
+  pendingFiles = native.filter((f) => {
+    const key = `${f.name}\0${f.size}\0${f.lastModified}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function getPendingCaseFiles(): File[] {

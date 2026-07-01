@@ -384,11 +384,8 @@ export default function ResearchWorkbench({
                 accept=".dcm,.dicom,.zip"
                 showUploadList
                 fileList={dicomFiles}
-                beforeUpload={(file) => {
-                  setDicomFiles((prev) => [...prev, file as UploadFile]);
-                  return false;
-                }}
-                onRemove={(file) => setDicomFiles((prev) => prev.filter((f) => f.uid !== file.uid))}
+                beforeUpload={() => false}
+                onChange={({ fileList }) => setDicomFiles(fileList)}
               >
                 <Button icon={<UploadOutlined />}>选择 DICOM 文件</Button>
               </Upload>

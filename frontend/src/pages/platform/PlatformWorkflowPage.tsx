@@ -78,11 +78,8 @@ export default function PlatformWorkflowPage() {
                     multiple
                     accept={ACCEPT}
                     fileList={uploadFiles}
-                    beforeUpload={(file) => {
-                      setUploadFiles((prev) => [...prev, file as UploadFile]);
-                      return false;
-                    }}
-                    onRemove={(file) => setUploadFiles((prev) => prev.filter((f) => f.uid !== file.uid))}
+                    beforeUpload={() => false}
+                    onChange={({ fileList }) => setUploadFiles(fileList)}
                   >
                     <p className="ant-upload-drag-icon">
                       <UploadOutlined style={{ fontSize: 36, color: "#1677ff" }} />

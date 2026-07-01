@@ -256,10 +256,9 @@ export default function PlatformChatPage() {
               multiple
               showUploadList={false}
               accept={ACCEPT}
-              beforeUpload={(file) => {
-                setFiles((prev) => [...prev, file as UploadFile]);
-                return false;
-              }}
+              fileList={files}
+              beforeUpload={() => false}
+              onChange={({ fileList }) => setFiles(fileList)}
             >
               <Button type="text" title="上传 Excel / ZIP / PDF / Word / DICOM">
                 📎
