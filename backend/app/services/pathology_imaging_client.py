@@ -77,6 +77,34 @@ def collect_dicom_files(file_items: list[tuple[str, bytes]] | None) -> list[tupl
     return unique
 
 
+def _slim_raw_for_client(data: Any, *, max_str_len: int = 400) -> Any:
+    """Remove large base64 / binary blobs from API payload before sending to the browser."""
+    if isinstance(data, dict):
+        out: dict[str, Any] = {}
+        for key, value in data.items():
+            key_lower = str(key).lower()
+            if any(h in key_lower for h in ("base64", "image", "png", "jpg", "jpeg", "dicom", "slice", "buffer", "bytes")):
+                if isinstance(value, str) and len(value) > max_str_len:
+                    out[key] = f"<omitted {len(value)} chars>"
+                    continue
+                if isinstance(value, list) and len(value) > 3:
+                    out[key] = f"<omitted list len={len(value)}>"
+                    continue
+            slimmed = _slim_raw_for_client(value, max_str_len=max_str_len)
+            if isinstance(slimmed, str) and len(slimmed) > max_str_len * 2:
+                out[key] = f"<omitted {len(slimmed)} chars>"
+            else:
+                out[key] = slimmed
+        return out
+    if isinstance(data, list):
+        if len(data) > 20:
+            return f"<omitted list len={len(data)}>"
+        return [_slim_raw_for_client(item, max_str_len=max_str_len) for item in data]
+    if isinstance(data, str) and len(data) > max_str_len:
+        return f"<omitted {len(data)} chars>"
+    return data
+
+
 def _normalize_grade_text(raw: Any) -> str:
     if raw is None:
         return ""
@@ -158,7 +186,7 @@ def parse_grading_response(data: Any) -> dict[str, Any]:
         "grade_label": grade_label,
         "confidence": confidence,
         "result_image_base64": image_b64,
-        "raw": data,
+        "raw": _slim_raw_for_client(data),
     }
 
 
