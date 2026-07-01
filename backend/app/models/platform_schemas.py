@@ -78,6 +78,7 @@ class PathologyImagingGradeResult(BaseModel):
     confidence: float | None = None
     result_image_base64: str = ""
     dicom_count: int = 0
+    raw: dict[str, Any] = Field(default_factory=dict)
 
 
 class PlatformChatAnalyzeResponse(BaseModel):

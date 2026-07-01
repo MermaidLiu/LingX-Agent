@@ -66,6 +66,7 @@ export type PathologyImagingGradeResult = {
   confidence: number | null;
   result_image_base64: string;
   dicom_count: number;
+  raw?: Record<string, unknown>;
 };
 
 export type ChatAnalyzeResult = {

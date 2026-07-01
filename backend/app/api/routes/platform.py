@@ -153,6 +153,7 @@ async def platform_pathology_grade(
     for uf in files:
         file_items.append((uf.filename or "upload.dcm", await uf.read()))
     raw = await predict_grade_from_imaging(file_items, return_base64=return_base64)
+    raw_payload = raw.get("raw") if isinstance(raw.get("raw"), dict) else {}
     return PathologyImagingGradeResult(
         status=str(raw.get("status", "")),
         message=str(raw.get("message", "")),
@@ -160,6 +161,7 @@ async def platform_pathology_grade(
         confidence=raw.get("confidence"),
         result_image_base64=str(raw.get("result_image_base64", "")),
         dicom_count=int(raw.get("dicom_count") or 0),
+        raw=raw_payload,
     )
 
 

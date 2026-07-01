@@ -1,4 +1,4 @@
-import type { ChatAnalyzeResult, PlatformDiagnosis } from "../api/platform";
+import type { ChatAnalyzeResult, PathologyImagingGradeResult, PlatformDiagnosis } from "../api/platform";
 import type { PetCtInterviewRecord } from "../api/client";
 
 const SESSION_KEY = "pmp_platform_session";
@@ -8,6 +8,8 @@ export type PlatformSession = {
   record: PetCtInterviewRecord | null;
   fusionSummary: string;
   savedExamId: string | null;
+  pathologyImaging: PathologyImagingGradeResult | null;
+  uploadedFileNames: string[];
   updatedAt: string;
 };
 
@@ -16,6 +18,8 @@ const EMPTY: PlatformSession = {
   record: null,
   fusionSummary: "",
   savedExamId: null,
+  pathologyImaging: null,
+  uploadedFileNames: [],
   updatedAt: "",
 };
 
@@ -40,6 +44,15 @@ export function setAnalysisResult(result: ChatAnalyzeResult) {
     record: result.record,
     fusionSummary: result.fusion_summary,
     savedExamId: null,
+    pathologyImaging: result.pathology_imaging ?? null,
+  });
+}
+
+export function setPathologyImagingResult(result: PathologyImagingGradeResult, fileNames: string[] = []) {
+  savePlatformSession({
+    pathologyImaging: result,
+    uploadedFileNames: fileNames,
+    savedExamId: null,
   });
 }
 
@@ -53,4 +66,8 @@ export function clearPlatformSession() {
 
 export function getDiagnosisOrNull(): PlatformDiagnosis | null {
   return loadPlatformSession().diagnosis;
+}
+
+export function getPathologyImagingOrNull(): PathologyImagingGradeResult | null {
+  return loadPlatformSession().pathologyImaging;
 }

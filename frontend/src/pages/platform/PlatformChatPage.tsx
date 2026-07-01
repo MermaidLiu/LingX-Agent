@@ -12,6 +12,7 @@ import type { UploadFile } from "antd/es/upload/interface";
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { platformChatAnalyze, platformChatSave } from "../../api/platform";
+import { setPendingCaseFiles } from "../../lib/platformCaseUpload";
 import { markSaved, loadPlatformSession, setAnalysisResult } from "../../lib/platformSession";
 
 const { Text, Paragraph } = Typography;
@@ -116,6 +117,7 @@ export default function PlatformChatPage() {
         notes: "",
       });
       setAnalysisResult(result);
+      setPendingCaseFiles(uploadFiles);
 
       const extraNotes: string[] = [];
       if (result.pathology_imaging_status) {
