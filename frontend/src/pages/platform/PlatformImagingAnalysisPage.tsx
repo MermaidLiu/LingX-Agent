@@ -6,13 +6,15 @@ import {
   IMAGING_RESULTS,
   IMAGING_TASKS,
 } from "../../data/researchWorkbenchMock";
+import { getPathologyImagingOrNull } from "../../lib/platformSession";
 
 export default function PlatformImagingAnalysisPage() {
+  const pathology = getPathologyImagingOrNull();
   return (
     <ResearchWorkbench
       moduleKey="imaging"
       title="影像数据智能分析工作台"
-      subtitle="面向 CT / MRI / PET / WSI 等影像数据，结合机器学习或深度学习进行特征筛选与预测建模。"
+      subtitle="基于智能分析标注病灶图进行 Radiomics 特征建模与预测。"
       badge="模块二：影像数据智能分析"
       theme="cyan"
       dataTitle="影像与标注"
@@ -21,6 +23,8 @@ export default function PlatformImagingAnalysisPage() {
       methods={IMAGING_METHODS}
       resultMap={IMAGING_RESULTS}
       indicatorSpecs={IMAGING_INDICATOR_SPECS}
+      radiomicsAnnotatedImage={pathology?.result_image_base64}
+      radiomicsPathologyGrade={pathology?.grade_label}
       stats={[
         { label: "影像数", value: "76,300" },
         { label: "配对病例", value: "9,420" },

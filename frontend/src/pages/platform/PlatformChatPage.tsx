@@ -7,13 +7,19 @@ import {
   RobotOutlined,
   SendOutlined,
 } from "@ant-design/icons";
-import { App, Button, Spin, Tag, Typography, Upload } from "antd";
+import { App, Alert, Button, Spin, Tag, Typography, Upload } from "antd";
 import type { UploadFile } from "antd/es/upload/interface";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { platformChatAnalyze, platformChatSave } from "../../api/platform";
-import { setPendingCaseFiles } from "../../lib/platformCaseUpload";
-import { markSaved, loadPlatformSession, setAnalysisResult } from "../../lib/platformSession";
+import {
+  filesToUploadFiles,
+  getPendingCaseFiles,
+  mergeAnalysisFiles,
+  setPendingCaseFiles,
+} from "../../lib/platformCaseUpload";
+import { hasAnnotatedImage, imageSrcFromBase64 } from "../../lib/pathologyImage";
+import { getPathologyImagingOrNull, markSaved, loadPlatformSession, setAnalysisResult } from "../../lib/platformSession";
 
 const { Text, Paragraph } = Typography;
 
@@ -79,17 +85,34 @@ export default function PlatformChatPage() {
       id: "welcome",
       role: "assistant",
       content:
-        "您好，我是 PMP 智能助手。请上传 Excel、ZIP、PDF、Word 或 DICOM 文件，并在下方描述分析需求，我将进行多模态智能分析；分析完成后可一键加入数据库。",
+        "您好，我是 PMP 智能助手。工作台上传的病例会自动同步到此处，您可直接描述分析需求；也可继续追加 Excel、ZIP、PDF、Word 或 DICOM 文件。",
     },
   ]);
+  const [syncedFromWorkbench, setSyncedFromWorkbench] = useState(false);
+
+  useEffect(() => {
+    const pending = getPendingCaseFiles();
+    if (!pending.length) return;
+    setFiles(filesToUploadFiles(pending));
+    setSyncedFromWorkbench(true);
+    const pathology = getPathologyImagingOrNull();
+    if (pathology?.grade_label) {
+      setInput((prev) =>
+        prev ||
+        `请结合工作台已完成的影像诊断分析（${pathology.grade_label}）与上传的 ${pending.length} 个病例文件，给出综合解读与后续科研建议。`,
+      );
+    }
+  }, []);
 
   function scrollBottom() {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 80);
   }
 
   async function handleSend() {
+    const composerFiles = files.map((f) => (f.originFileObj ?? f) as unknown as File);
+    const uploadFiles = mergeAnalysisFiles(composerFiles);
     const text = input.trim();
-    if (!text && files.length === 0) {
+    if (!text && uploadFiles.length === 0) {
       message.warning("请输入分析需求或上传文件");
       return;
     }
@@ -98,23 +121,25 @@ export default function PlatformChatPage() {
       id: `u-${Date.now()}`,
       role: "user",
       content: text || "（已上传文件，请分析）",
-      files: files.map((f) => ({ name: f.name, icon: fileIcon(f.name) })),
+      files: uploadFiles.map((f) => ({ name: f.name, icon: fileIcon(f.name) })),
     };
 
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
-    const uploadFiles = files.map((f) => f as unknown as File);
     setFiles([]);
     setLoading(true);
     setSavedToDb(false);
     scrollBottom();
 
     try {
+      const pathology = getPathologyImagingOrNull();
       const result = await platformChatAnalyze(uploadFiles, {
         question: text || "请基于上传的数据给出分析结论与建议。",
         variables: "",
         outcome: "grade",
-        notes: "",
+        notes: pathology?.grade_label
+          ? `工作台影像诊断：${pathology.grade_label}${pathology.confidence != null ? `，置信度 ${(pathology.confidence * 100).toFixed(0)}%` : ""}`
+          : "",
       });
       setAnalysisResult(result);
       setPendingCaseFiles(uploadFiles);
@@ -200,11 +225,11 @@ export default function PlatformChatPage() {
                   </div>
                 ) : null}
                 <Paragraph style={{ margin: 0, whiteSpace: "pre-wrap" }}>{m.content}</Paragraph>
-                {m.gradeImage ? (
+                {m.gradeImage && hasAnnotatedImage(m.gradeImage) ? (
                   <img
-                    src={`data:image/png;base64,${m.gradeImage}`}
-                    alt="影像诊断分析结果"
-                    style={{ maxWidth: "100%", marginTop: 12, borderRadius: 8, border: "1px solid #e8edf5" }}
+                    src={imageSrcFromBase64(m.gradeImage)}
+                    alt="影像诊断标注图"
+                    style={{ maxWidth: "100%", marginTop: 12, borderRadius: 8, border: "1px solid #e8edf5", background: "#0a0a0a" }}
                   />
                 ) : null}
                 {m.analysisDone ? (
@@ -241,6 +266,14 @@ export default function PlatformChatPage() {
         </div>
 
         <div className="pmp-gpt-composer-wrap">
+          {syncedFromWorkbench && files.length > 0 ? (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 8 }}
+              message={`已从工作台同步 ${files.length} 个病例文件，无需重新上传`}
+            />
+          ) : null}
           {files.length > 0 ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
               {files.map((f) => (
@@ -258,7 +291,10 @@ export default function PlatformChatPage() {
               accept={ACCEPT}
               fileList={files}
               beforeUpload={() => false}
-              onChange={({ fileList }) => setFiles(fileList)}
+              onChange={({ fileList }) => {
+                setFiles(fileList);
+                setPendingCaseFiles(fileList);
+              }}
             >
               <Button type="text" title="上传 Excel / ZIP / PDF / Word / DICOM">
                 📎

@@ -1,22 +1,28 @@
 import { FileImageOutlined } from "@ant-design/icons";
-import { Button, Descriptions, Drawer, Spin, Tabs, Typography } from "antd";
+import { Button, Descriptions, Drawer, Spin, Tabs, Tag, Typography } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { platformListImaging, type PlatformImagingRecord } from "../../api/platform";
 import { DatabasePageShell, DbTitle, StatusTag } from "../../components/platform/DatabasePageShell";
 import ImagingViewer from "../../components/platform/ImagingViewer";
+import { hasAnnotatedImage, imageSrcFromBase64 } from "../../lib/pathologyImage";
+import { loadPathologyImage } from "../../lib/pathologyImagingCache";
 
 const { Text, Paragraph } = Typography;
 
-/** MR 与 MRI 统一筛选 */
 function matchModality(row: PlatformImagingRecord, filter: string) {
   if (filter === "MR") return row.modality === "MRI" || row.modality === "MR";
   return row.modality === filter;
+}
+
+function safeLower(val: string | undefined | null) {
+  return (val || "").toLowerCase();
 }
 
 export default function PlatformImagingDbPage() {
   const [detail, setDetail] = useState<PlatformImagingRecord | null>(null);
   const [data, setData] = useState<PlatformImagingRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [annotatedB64, setAnnotatedB64] = useState<string | null>(null);
 
   const fetchImaging = useCallback(async () => {
     setLoading(true);
@@ -31,13 +37,21 @@ export default function PlatformImagingDbPage() {
   }, []);
 
   useEffect(() => {
-    fetchImaging();
+    void fetchImaging();
   }, [fetchImaging]);
+
+  useEffect(() => {
+    if (!detail?.hasAnnotatedImage) {
+      setAnnotatedB64(null);
+      return;
+    }
+    void loadPathologyImage(detail.id).then(setAnnotatedB64);
+  }, [detail]);
 
   const stats = useMemo(() => {
     return [
       { title: "影像总数", value: data.length, suffix: "例" },
-      { title: "DICOM 总量", value: data.reduce((s, r) => s + r.dicomCount, 0), suffix: "张" },
+      { title: "DICOM 总量", value: data.reduce((s, r) => s + (r.dicomCount || 0), 0), suffix: "张" },
     ];
   }, [data]);
 
@@ -60,7 +74,7 @@ export default function PlatformImagingDbPage() {
         }
         extra={
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            智能分析完成后自动入库 · 详情可调阅影像
+            智能分析确认入库后同步 · 详情可查看标注图与 DICOM
           </Typography.Text>
         }
         stats={stats}
@@ -69,11 +83,11 @@ export default function PlatformImagingDbPage() {
         filterPlaceholder="搜索患者 / 检查号 / 报告摘要"
         filterFn={(row, kw) =>
           !kw ||
-          row.id.toLowerCase().includes(kw) ||
-          row.patientName.toLowerCase().includes(kw) ||
-          row.patientId.toLowerCase().includes(kw) ||
-          row.reportSummary.toLowerCase().includes(kw) ||
-          row.examItem.toLowerCase().includes(kw)
+          safeLower(row.id).includes(kw) ||
+          safeLower(row.patientName).includes(kw) ||
+          safeLower(row.patientId).includes(kw) ||
+          safeLower(row.reportSummary).includes(kw) ||
+          safeLower(row.examItem).includes(kw)
         }
         modalityLabel="模态"
         modalityOptions={[
@@ -90,6 +104,11 @@ export default function PlatformImagingDbPage() {
           { title: "检查项目", dataIndex: "examItem", ellipsis: true },
           { title: "日期", dataIndex: "examDate", width: 100 },
           { title: "DICOM", dataIndex: "dicomCount", width: 72 },
+          {
+            title: "标注图",
+            width: 72,
+            render: (_, r) => (r.hasAnnotatedImage ? <Tag color="blue">有</Tag> : "—"),
+          },
           { title: "状态", width: 88, render: (_, r) => <StatusTag status={r.status} /> },
           {
             title: "操作",
@@ -114,8 +133,21 @@ export default function PlatformImagingDbPage() {
           <Tabs
             items={[
               {
+                key: "annotated",
+                label: "标注图",
+                children: hasAnnotatedImage(annotatedB64 || undefined) ? (
+                  <img
+                    src={imageSrcFromBase64(annotatedB64!)}
+                    alt="AI 标注病灶图"
+                    style={{ maxWidth: "100%", borderRadius: 8, border: "1px solid #e8edf5", background: "#0a0a0a" }}
+                  />
+                ) : (
+                  <Paragraph type="secondary">暂无标注图</Paragraph>
+                ),
+              },
+              {
                 key: "viewer",
-                label: "影像调阅",
+                label: "DICOM 调阅",
                 children: (
                   <ImagingViewer
                     modality={detail.modality}

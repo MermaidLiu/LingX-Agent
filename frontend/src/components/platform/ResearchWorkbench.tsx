@@ -1,15 +1,31 @@
 import { ArrowLeftOutlined, ExportOutlined, FileTextOutlined, UploadOutlined } from "@ant-design/icons";
 import { App, Button, Checkbox, Input, Space, Table, Tag, Typography, Upload } from "antd";
 import type { UploadFile } from "antd/es/upload/interface";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { ModuleAnalysisResult, ResearchResultRow, ResearchTask } from "../../data/researchWorkbenchMock";
 import type { IndicatorSpec } from "../../data/indicatorSpecs";
 import { platformResearchGradeRun, platformRunResearch } from "../../api/platform";
 import type { PathologyImagingGradeResult } from "../../api/platform";
+import {
+  filesToUploadFiles,
+  getPendingDicomFiles,
+  setPendingCaseFiles,
+} from "../../lib/platformCaseUpload";
+import { getPathologyImagingOrNull, hydratePathologyImagingResult } from "../../lib/platformSession";
 import { saveModuleResult } from "../../lib/researchModuleResults";
+import { buildResearchWorkflowPayload, getWorkflowContext } from "../../lib/workflowContext";
+import { hasAnnotatedImage, imageSrcFromBase64 } from "../../lib/pathologyImage";
 import IndicatorInputPanel from "./IndicatorInputPanel";
+import ClinicalQuestionPanel from "./ClinicalQuestionPanel";
 import RadiomicsPipeline from "./RadiomicsPipeline";
+import WorkflowContextBanner from "./WorkflowContextBanner";
+import {
+  applyQuestionTemplate,
+  clinicalQuestionToIndicators,
+  defaultClinicalQuestion,
+  type ClinicalQuestion,
+} from "../../data/clinicalQuestions";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -29,6 +45,8 @@ type Props = {
   followUps: string[];
   indicatorSpecs?: Record<string, IndicatorSpec>;
   enablePathologyPlatform?: boolean;
+  radiomicsAnnotatedImage?: string | null;
+  radiomicsPathologyGrade?: string;
   extraCenter?: ReactNode;
   linkedBanner?: ReactNode;
 };
@@ -96,11 +114,11 @@ function PathologyPlatformPanel({
           {data.message}
         </Paragraph>
       ) : null}
-      {imageBase64 ? (
+      {imageBase64 && hasAnnotatedImage(imageBase64) ? (
         <img
-          src={`data:image/png;base64,${imageBase64}`}
-          alt="影像诊断分析可视化"
-          style={{ maxWidth: "100%", borderRadius: 8, border: "1px solid #e8edf5" }}
+          src={imageSrcFromBase64(imageBase64)}
+          alt="影像诊断标注图"
+          style={{ maxWidth: "100%", borderRadius: 8, border: "1px solid #e8edf5", background: "#0a0a0a" }}
         />
       ) : null}
     </div>
@@ -123,6 +141,8 @@ export default function ResearchWorkbench({
   followUps,
   indicatorSpecs = {},
   enablePathologyPlatform = false,
+  radiomicsAnnotatedImage,
+  radiomicsPathologyGrade,
   extraCenter,
   linkedBanner,
 }: Props) {
@@ -142,10 +162,52 @@ export default function ResearchWorkbench({
   const [dicomFiles, setDicomFiles] = useState<UploadFile[]>([]);
   const [gradeImage, setGradeImage] = useState<string | null>(null);
   const [pathologyPlatform, setPathologyPlatform] = useState<PathologyImagingGradeResult | null>(null);
+  const [workflowReady, setWorkflowReady] = useState(false);
+  const [clinicalQuestion, setClinicalQuestion] = useState<ClinicalQuestion>(() => defaultClinicalQuestion());
+
+  useEffect(() => {
+    let cancelled = false;
+    async function bootstrapWorkflow() {
+      const ctx = getWorkflowContext();
+      const pendingDicom = getPendingDicomFiles();
+      if (pendingDicom.length) {
+        setDicomFiles(filesToUploadFiles(pendingDicom));
+      }
+      if (ctx.pathology) {
+        const hydrated = await hydratePathologyImagingResult(ctx.pathology);
+        if (!cancelled && hydrated) {
+          setPathologyPlatform(hydrated);
+          if (hydrated.result_image_base64) {
+            setGradeImage(hydrated.result_image_base64);
+          }
+        }
+      }
+      if (!cancelled) setWorkflowReady(true);
+    }
+    void bootstrapWorkflow();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const task = tasks.find((t) => t.id === taskId) ?? tasks[0];
   const isGradeDicomTask = GRADE_DICOM_TASKS.has(taskId);
   const isRadiomicsTask = moduleKey === "imaging" && RADIOMICS_TASKS.has(taskId);
+
+  useEffect(() => {
+    const ctx = getWorkflowContext();
+    if (taskId === "deeplearn") {
+      setClinicalQuestion((q) => applyQuestionTemplate(ctx.hasPathologyResult ? "single_case" : "deeplearn_lesion", q));
+    } else if (taskId === "radiomics" || taskId === "grade-pred") {
+      setClinicalQuestion((q) =>
+        applyQuestionTemplate(ctx.hasPathologyResult ? "single_case" : "pathology_binary", q),
+      );
+    } else if (taskId === "genotype") {
+      setClinicalQuestion((q) => applyQuestionTemplate("genotype_binary", q));
+    } else if (taskId === "prognosis-img" || taskId === "survival" || taskId === "prognosis") {
+      setClinicalQuestion((q) => applyQuestionTemplate("prognosis_survival", q));
+    }
+  }, [taskId]);
   const showOptionalDicom =
     enablePathologyPlatform && moduleKey === "clinical" && taskId === "grade-factor";
   const useLiveResultsOnly = isGradeDicomTask || isRadiomicsTask || Boolean(result);
@@ -180,27 +242,36 @@ export default function ResearchWorkbench({
 
     setRunning(true);
     setSaved(false);
-    setGradeImage(null);
-    setPathologyPlatform(null);
+    const workflowPayload = buildResearchWorkflowPayload(getWorkflowContext());
+    const ctx = getWorkflowContext();
+
     try {
-      const indicators = Object.fromEntries(
-        Object.entries(indicatorValues).filter(([, v]) => v.trim()),
-      );
+      const indicators = {
+        ...Object.fromEntries(Object.entries(indicatorValues).filter(([, v]) => v.trim())),
+        ...clinicalQuestionToIndicators(clinicalQuestion),
+      };
 
       let res;
-      if (isGradeDicomTask || (showOptionalDicom && dicomFiles.length > 0)) {
-        if (dicomFiles.length === 0) {
-          message.warning("请先上传 DICOM 文件（.dcm / .dicom 或 ZIP）");
+      const dicomFromUi = dicomFiles.map((f) => (f.originFileObj ?? f) as unknown as File);
+      const dicomToRun = dicomFromUi.length ? dicomFromUi : getPendingDicomFiles();
+
+      if (isGradeDicomTask || (showOptionalDicom && dicomToRun.length > 0)) {
+        if (isGradeDicomTask && !dicomToRun.length && !ctx.hasPathologyResult) {
+          message.warning("请先在「工作台」上传 DICOM，或完成「智能分析」后再运行");
           setRunning(false);
           return;
         }
         res = await platformResearchGradeRun(
-          dicomFiles.map((f) => f as unknown as File),
+          dicomToRun,
           moduleKey,
           taskId,
-          showOptionalDicom
-            ? { inclusion, exclusion, outcome, indicators }
-            : undefined,
+          {
+            inclusion,
+            exclusion,
+            outcome,
+            indicators,
+            workflow_context: workflowPayload,
+          },
         );
       } else {
         res = await platformRunResearch({
@@ -212,6 +283,7 @@ export default function ResearchWorkbench({
           outcome,
           split,
           indicators,
+          workflow_context: workflowPayload,
         });
       }
 
@@ -223,9 +295,13 @@ export default function ResearchWorkbench({
       setResultSummary(res.summary);
       if (res.pathology_imaging?.result_image_base64) {
         setGradeImage(res.pathology_imaging.result_image_base64);
+      } else if (ctx.pathology?.result_image_base64) {
+        setGradeImage(ctx.pathology.result_image_base64);
       }
       if (res.pathology_imaging) {
         setPathologyPlatform(res.pathology_imaging);
+      } else if (ctx.pathology) {
+        setPathologyPlatform(ctx.pathology);
       }
       const payload: ModuleAnalysisResult = {
         module: moduleKey,
@@ -281,6 +357,14 @@ export default function ResearchWorkbench({
       </div>
 
       {linkedBanner}
+
+      <WorkflowContextBanner />
+
+      <ClinicalQuestionPanel
+        value={clinicalQuestion}
+        onChange={setClinicalQuestion}
+        suggestedTaskId={taskId}
+      />
 
       <div className="pmp-research-wb-grid">
         <div className="pmp-card pmp-research-wb-col">
@@ -342,9 +426,10 @@ export default function ResearchWorkbench({
                   setResult(null);
                   setResultSummary("");
                   setSaved(false);
-                  setGradeImage(null);
-                  setPathologyPlatform(null);
-                  setDicomFiles([]);
+                  if (!getPendingDicomFiles().length) {
+                    setGradeImage(null);
+                    setPathologyPlatform(null);
+                  }
                 }}
               >
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{t.title}</div>
@@ -369,25 +454,44 @@ export default function ResearchWorkbench({
           {extraCenter}
 
           {isRadiomicsTask ? (
-            <RadiomicsPipeline accent={colors.accent} light={colors.light} onComplete={handleRadiomicsComplete} />
+            <RadiomicsPipeline
+              accent={colors.accent}
+              light={colors.light}
+              annotatedImageBase64={radiomicsAnnotatedImage}
+              pathologyGrade={radiomicsPathologyGrade}
+              clinicalQuestion={clinicalQuestion}
+              onComplete={handleRadiomicsComplete}
+            />
           ) : null}
 
           {isGradeDicomTask || showOptionalDicom ? (
             <div style={{ marginBottom: 16, padding: 12, background: colors.light, borderRadius: 8 }}>
               <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
                 {isGradeDicomTask
-                  ? "上传 DICOM 调用影像诊断分析（支持 .dcm / .dicom / ZIP）"
-                  : "可选：上传 DICOM 调用影像诊断分析接口，与队列因素分析一并展示"}
+                  ? "已自动关联工作台 DICOM；也可在此追加上传（.dcm / .dicom / ZIP）"
+                  : "可选：追加 DICOM 与队列因素分析一并展示（工作台文件已自动关联）"}
               </Text>
+              {dicomFiles.length > 0 ? (
+                <Tag color="blue" style={{ marginBottom: 8 }}>
+                  已关联 {dicomFiles.length} 个 DICOM/ZIP 文件
+                </Tag>
+              ) : workflowReady && isGradeDicomTask && getWorkflowContext().hasPathologyResult ? (
+                <Tag color="green" style={{ marginBottom: 8 }}>
+                  将使用智能分析结果，无需重新上传
+                </Tag>
+              ) : null}
               <Upload
                 multiple
                 accept=".dcm,.dicom,.zip"
                 showUploadList
                 fileList={dicomFiles}
                 beforeUpload={() => false}
-                onChange={({ fileList }) => setDicomFiles(fileList)}
+                onChange={({ fileList }) => {
+                  setDicomFiles(fileList);
+                  setPendingCaseFiles(fileList);
+                }}
               >
-                <Button icon={<UploadOutlined />}>选择 DICOM 文件</Button>
+                <Button icon={<UploadOutlined />}>追加 DICOM 文件</Button>
               </Upload>
             </div>
           ) : null}
@@ -427,11 +531,11 @@ export default function ResearchWorkbench({
             ]}
           />
           <BarChart rows={previewRows} />
-          {gradeImage && !pathologyPlatform ? (
+          {gradeImage && hasAnnotatedImage(gradeImage) && !pathologyPlatform ? (
             <img
-              src={`data:image/png;base64,${gradeImage}`}
-              alt="影像诊断分析可视化"
-              style={{ maxWidth: "100%", marginTop: 12, borderRadius: 8, border: "1px solid #e8edf5" }}
+              src={imageSrcFromBase64(gradeImage)}
+              alt="影像诊断标注图"
+              style={{ maxWidth: "100%", marginTop: 12, borderRadius: 8, border: "1px solid #e8edf5", background: "#0a0a0a" }}
             />
           ) : null}
           {saved ? (

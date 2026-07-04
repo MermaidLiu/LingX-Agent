@@ -2,6 +2,8 @@ import { Col, Input, Row, Select, Space, Statistic, Table, Tag, Typography } fro
 import type { ColumnsType } from "antd/es/table";
 import { useMemo, useState, type ReactNode } from "react";
 
+const { Text } = Typography;
+
 type StatItem = { title: string; value: number | string; suffix?: string; color?: string };
 
 type Props<T> = {

@@ -23,23 +23,94 @@ _GRADE_KEY_HINTS = (
     "prediction",
     "predicted_class",
     "class",
+    "class_name",
     "label",
-    "result",
     "diagnosis",
     "level",
+    "risk",
+    "subtype",
+    "tumor_grade",
 )
-_CONF_KEY_HINTS = ("confidence", "score", "probability", "prob", "certainty")
-_IMAGE_KEY_HINTS = (
-    "image",
-    "result_image",
-    "resultImage",
-    "png",
-    "base64",
+_CONF_KEY_HINTS = ("confidence", "score", "probability", "prob", "certainty", "risk_score")
+# CT module per-slice API: resultBase64 = annotated PNG, pngBase64 = raw slice preview
+_CT_MODULE_RESULT_IMAGE_KEYS = ("resultBase64", "result_base64")
+_CT_MODULE_PREVIEW_IMAGE_KEYS = ("pngBase64", "png_base64")
+# Prefer annotated / overlay PNG keys returned by the CT module API
+_ANNOTATED_IMAGE_KEYS = (
     "result_base64",
     "resultBase64",
+    "annotated_image",
+    "annotatedImage",
+    "annotated_image_base64",
+    "annotatedImageBase64",
+    "annotation_image",
+    "annotationImage",
+    "marked_image",
+    "markedImage",
+    "overlay_image",
+    "overlayImage",
+    "visualization_image",
+    "visualizationImage",
+    "visualization_png",
+    "visualizationPng",
+    "result_image",
+    "resultImage",
+    "result_png",
+    "resultPng",
+    "output_image",
+    "outputImage",
+    "image_base64",
+    "imageBase64",
+    "base64_png",
+    "base64Png",
     "visualization",
-    "overlay",
+    "heatmap",
+    "mask_overlay",
+    "maskOverlay",
+    "image",
 )
+# Raw / preview images — only use when no annotated key exists
+_RAW_IMAGE_KEY_FRAGMENTS = (
+    "original",
+    "source",
+    "input",
+    "raw",
+    "preview",
+    "thumbnail",
+    "dicom",
+    "slice",
+    "before",
+    "pngbase64",
+    "png_base64",
+)
+_TOP_GRADE_KEYS = (
+    "grade",
+    "grade_label",
+    "gradelevel",
+    "pathology_grade",
+    "pathologygrade",
+    "prediction",
+    "predicted_class",
+    "predicted_label",
+    "predicted_grade",
+    "class",
+    "class_name",
+    "classname",
+    "diagnosis",
+    "diagnosis_result",
+    "level",
+    "label",
+    "risk",
+    "risk_level",
+    "subtype",
+    "tumor_grade",
+    "who_grade",
+    "病理分级",
+    "病理",
+    "诊断",
+    "分级",
+)
+_CT_MODULE_SUMMARY_KEYS = ("summary", "study", "aggregate", "overall", "study_result", "studyResult")
 
 
 def is_imaging_grade_task(task_id: str) -> bool:
@@ -118,6 +189,318 @@ def _normalize_grade_text(raw: Any) -> str:
     return text
 
 
+def _looks_like_base64_image(text: str) -> bool:
+    s = text.strip()
+    if len(s) < 80:
+        return False
+    if s.startswith("data:image"):
+        return True
+    if s.startswith("iVBOR") or s.startswith("/9j/"):
+        return True
+    sample = s[:256].replace("\n", "").replace("\r", "")
+    return len(s) >= 200 and bool(re.fullmatch(r"[A-Za-z0-9+/=\s]+", sample))
+
+
+def _normalize_base64_image(text: str) -> str:
+    s = text.strip()
+    if s.startswith("data:image"):
+        s = s.split(",", 1)[-1]
+    return s.replace("\n", "").replace("\r", "").replace(" ", "")
+
+
+def _normalize_confidence(raw: Any) -> float | None:
+    if raw is None:
+        return None
+    try:
+        confidence = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if confidence > 1.0:
+        confidence = confidence / 100.0
+    return max(0.0, min(1.0, confidence))
+
+
+def _key_matches(key: str, hints: tuple[str, ...]) -> bool:
+    lower = str(key).lower().replace("-", "_")
+    hint_set = {h.lower().replace("-", "_") for h in hints}
+    return lower in hint_set
+
+
+def _key_is_raw_image(key: str) -> bool:
+    lower = str(key).lower().replace("-", "_")
+    if lower in {k.lower() for k in _CT_MODULE_PREVIEW_IMAGE_KEYS}:
+        return True
+    if _key_matches(lower, _ANNOTATED_IMAGE_KEYS):
+        return False
+    return any(fragment in lower for fragment in _RAW_IMAGE_KEY_FRAGMENTS)
+
+
+def _extract_ct_module_item_image(item: dict[str, Any]) -> str:
+    """CT module slice item: always use resultBase64 (annotated), never pngBase64 (preview)."""
+    for key in _CT_MODULE_RESULT_IMAGE_KEYS:
+        val = item.get(key)
+        if isinstance(val, str) and _looks_like_base64_image(val):
+            return _normalize_base64_image(val)
+    return ""
+
+
+def _is_ct_module_slice_result(item: dict[str, Any]) -> bool:
+    return any(key in item for key in _CT_MODULE_RESULT_IMAGE_KEYS)
+
+
+def _pick_representative_ct_slice(results: list[Any]) -> tuple[int, dict[str, Any] | None, str]:
+    """Pick the slice whose annotated output differs most from the preview (likely lesion slice)."""
+    indexed: list[tuple[int, dict[str, Any], str]] = []
+    for idx, item in enumerate(results):
+        if not isinstance(item, dict):
+            continue
+        image = _extract_ct_module_item_image(item)
+        if image:
+            indexed.append((idx, item, image))
+
+    if not indexed:
+        return -1, None, ""
+
+    def slice_score(entry: tuple[int, dict[str, Any], str]) -> int:
+        _, item, image = entry
+        preview = item.get("pngBase64") or item.get("png_base64") or ""
+        if preview and image != preview:
+            return len(image) + 2_000_000
+        return len(image)
+
+    idx, item, image = max(indexed, key=slice_score)
+    return idx, item, image
+
+
+def _grade_from_probabilities(obj: dict[str, Any]) -> tuple[Any, float | None]:
+    for key in ("probabilities", "probability", "probs", "class_probs", "scores"):
+        probs = obj.get(key)
+        if not isinstance(probs, dict) or not probs:
+            continue
+        best_label = ""
+        best_conf: float | None = None
+        for label, val in probs.items():
+            conf = _normalize_confidence(val)
+            if conf is None:
+                continue
+            if best_conf is None or conf > best_conf:
+                best_conf = conf
+                best_label = str(label)
+        if best_label:
+            return best_label, best_conf
+    return None, None
+
+
+def _extract_base64_from_value(value: Any, *, allow_raw_fallback: bool = True) -> str:
+    """Extract image base64; prefer annotated keys and avoid raw slice previews."""
+    if isinstance(value, str) and _looks_like_base64_image(value):
+        return _normalize_base64_image(value)
+    if isinstance(value, list):
+        preferred = ""
+        fallback = ""
+        for item in value:
+            found = _extract_base64_from_value(item, allow_raw_fallback=allow_raw_fallback)
+            if not found:
+                continue
+            if not fallback:
+                fallback = found
+            preferred = preferred or found
+        return preferred or fallback
+    if isinstance(value, dict):
+        for key in _ANNOTATED_IMAGE_KEYS:
+            for k, v in value.items():
+                if str(k).lower() == key.lower():
+                    found = _extract_base64_from_value(v, allow_raw_fallback=False)
+                    if found:
+                        return found
+        preferred = ""
+        fallback = ""
+        for k, v in value.items():
+            if _key_is_raw_image(str(k)):
+                if allow_raw_fallback:
+                    found = _extract_base64_from_value(v, allow_raw_fallback=True)
+                    if found and not fallback:
+                        fallback = found
+                continue
+            found = _extract_base64_from_value(v, allow_raw_fallback=allow_raw_fallback)
+            if found and not preferred:
+                preferred = found
+        return preferred or fallback
+    return ""
+
+
+def _extract_result_image_b64(data: dict[str, Any]) -> str:
+    """Extract annotated PNG/JPEG base64 from API JSON (prefer overlay/annotation keys)."""
+    for block_key in ("result", "data", "payload", "output", *_CT_MODULE_SUMMARY_KEYS):
+        block = data.get(block_key)
+        if isinstance(block, dict):
+            found = _extract_base64_from_value(block, allow_raw_fallback=False)
+            if found:
+                return found
+    results = data.get("results")
+    if isinstance(results, list) and results:
+        if any(isinstance(x, dict) and _is_ct_module_slice_result(x) for x in results):
+            _, _, image = _pick_representative_ct_slice(results)
+            if image:
+                return image
+        best_image = ""
+        best_score = -1.0
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            image = _parse_result_item(item)[2]
+            if not image:
+                continue
+            conf = _extract_confidence_from_block(item)
+            conf_f = _normalize_confidence(conf)
+            score = conf_f if conf_f is not None else 0.0
+            if score > best_score:
+                best_score = score
+                best_image = image
+        if best_image:
+            return best_image
+    for key in _ANNOTATED_IMAGE_KEYS:
+        for k, v in data.items():
+            if str(k).lower() == key.lower():
+                found = _extract_base64_from_value(v, allow_raw_fallback=False)
+                if found:
+                    return found
+    return _extract_base64_from_value(data, allow_raw_fallback=True)
+
+
+def _extract_grade_from_block(block: dict[str, Any]) -> Any:
+    for key in _TOP_GRADE_KEYS:
+        for k, v in block.items():
+            if _key_matches(str(k), (key,)) and v is not None and str(v).strip() and not isinstance(v, (dict, list)):
+                return v
+    grade_from_probs, _ = _grade_from_probabilities(block)
+    if grade_from_probs:
+        return grade_from_probs
+    nested = block.get("result")
+    if isinstance(nested, dict):
+        nested_grade = _extract_grade_from_block(nested)
+        if nested_grade is not None:
+            return nested_grade
+    return None
+
+
+def _extract_confidence_from_block(block: dict[str, Any]) -> Any:
+    for key in _CONF_KEY_HINTS:
+        for k, v in block.items():
+            if _key_matches(str(k), (key,)) and v is not None and str(v).strip() and not isinstance(v, (dict, list)):
+                return v
+    _, conf = _grade_from_probabilities(block)
+    if conf is not None:
+        return conf
+    nested = block.get("result")
+    if isinstance(nested, dict):
+        nested_conf = _extract_confidence_from_block(nested)
+        if nested_conf is not None:
+            return nested_conf
+    return None
+
+
+def _parse_result_item(item: dict[str, Any]) -> tuple[Any, Any, str]:
+    grade = _extract_grade_from_block(item) or _find_in_obj(item, _GRADE_KEY_HINTS)
+    conf = _extract_confidence_from_block(item) or _find_in_obj(item, _CONF_KEY_HINTS)
+    if _is_ct_module_slice_result(item):
+        image = _extract_ct_module_item_image(item)
+    else:
+        image = _extract_base64_from_value(item, allow_raw_fallback=False)
+    return grade, conf, image
+
+
+def _pick_best_from_results(results: list[Any]) -> tuple[Any, Any, str]:
+    best_grade: Any = None
+    best_conf_raw: Any = None
+    best_image = ""
+    best_score = -1.0
+
+    if any(isinstance(x, dict) and _is_ct_module_slice_result(x) for x in results):
+        _, _, best_image = _pick_representative_ct_slice(results)
+
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        grade, conf, image = _parse_result_item(item)
+        conf_f = _normalize_confidence(conf)
+        score = conf_f if conf_f is not None else (0.5 if grade else 0.0)
+        if image and not best_image:
+            best_image = image
+        if score >= best_score:
+            best_score = score
+            if grade is not None and str(grade).strip():
+                best_grade = grade
+            if conf is not None:
+                best_conf_raw = conf
+    return best_grade, best_conf_raw, best_image
+
+
+def _extract_top_level_fields(data: dict[str, Any]) -> tuple[Any, Any]:
+    top = {k: v for k, v in data.items() if k != "results"}
+    grade = _extract_grade_from_block(top) or _find_in_obj(top, _GRADE_KEY_HINTS)
+    conf = _extract_confidence_from_block(top) or _find_in_obj(top, _CONF_KEY_HINTS)
+    return grade, conf
+
+
+def _summarize_api_payload(data: dict[str, Any]) -> dict[str, Any]:
+    """Compact view of external API payload for UI debugging."""
+    summary: dict[str, Any] = {
+        "status": data.get("status"),
+        "message": data.get("message") or data.get("msg"),
+        "sessionId": data.get("sessionId") or data.get("session_id"),
+        "count": data.get("count"),
+    }
+    results = data.get("results")
+    if isinstance(results, list):
+        preview: list[dict[str, Any]] = []
+        for idx, item in enumerate(results[:5]):
+            if not isinstance(item, dict):
+                preview.append({"index": idx, "type": type(item).__name__})
+                continue
+            grade, conf, image = _parse_result_item(item)
+            preview.append(
+                {
+                    "index": idx,
+                    "keys": sorted(str(k) for k in item.keys()),
+                    "parsed_grade": _normalize_grade_text(grade) or (str(grade).strip() if grade else ""),
+                    "parsed_confidence": _normalize_confidence(conf),
+                    "has_annotated_image": bool(image),
+                    "uses_resultBase64": bool(item.get("resultBase64") or item.get("result_base64")),
+                    "uses_pngBase64_preview": bool(item.get("pngBase64") or item.get("png_base64")),
+                    "scalar_fields": {
+                        str(k): v
+                        for k, v in item.items()
+                        if not isinstance(v, (dict, list)) and not _looks_like_base64_image(str(v))
+                    },
+                }
+            )
+        summary["results_preview"] = preview
+        if len(results) > 5:
+            summary["results_truncated"] = len(results) - 5
+        if any(isinstance(x, dict) and _is_ct_module_slice_result(x) for x in results):
+            idx, item, _ = _pick_representative_ct_slice(results)
+            if item is not None:
+                summary["selected_slice"] = {
+                    "index": idx,
+                    "filename": item.get("filename"),
+                    "image_field": "resultBase64",
+                    "note": "pngBase64=原始切片预览，resultBase64=标注图",
+                }
+    for block_key in _CT_MODULE_SUMMARY_KEYS:
+        block = data.get(block_key)
+        if isinstance(block, dict):
+            grade = _extract_grade_from_block(block)
+            conf = _extract_confidence_from_block(block)
+            summary[block_key] = {
+                "keys": sorted(str(k) for k in block.keys()),
+                "parsed_grade": _normalize_grade_text(grade) or (str(grade).strip() if grade else ""),
+                "parsed_confidence": _normalize_confidence(conf),
+                "has_annotated_image": bool(_extract_base64_from_value(block, allow_raw_fallback=False)),
+            }
+    return summary
+
+
 def _find_in_obj(obj: Any, key_hints: tuple[str, ...]) -> Any:
     if isinstance(obj, dict):
         lower_map = {str(k).lower(): k for k in obj.keys()}
@@ -151,25 +534,50 @@ def parse_grading_response(data: Any) -> dict[str, Any]:
             "raw": data,
         }
 
-    grade_raw = _find_in_obj(data, _GRADE_KEY_HINTS)
-    conf_raw = _find_in_obj(data, _CONF_KEY_HINTS)
-    image_raw = _find_in_obj(data, _IMAGE_KEY_HINTS)
+    grade_raw: Any = None
+    conf_raw: Any = None
+    image_b64 = ""
+    selected_slice_meta: dict[str, Any] = {}
+
+    top_grade, top_conf = _extract_top_level_fields(data)
+    grade_raw = top_grade
+    conf_raw = top_conf
+
+    results = data.get("results")
+    if isinstance(results, list) and results:
+        slice_grade, slice_conf, slice_image = _pick_best_from_results(results)
+        grade_raw = grade_raw or slice_grade
+        conf_raw = conf_raw or slice_conf
+        if any(isinstance(x, dict) and _is_ct_module_slice_result(x) for x in results):
+            idx, item, slice_image = _pick_representative_ct_slice(results)
+            if slice_image:
+                image_b64 = slice_image
+            if item is not None:
+                selected_slice_meta = {
+                    "selected_slice_index": idx,
+                    "selected_slice_filename": item.get("filename"),
+                    "image_field": "resultBase64",
+                }
+        elif slice_image:
+            image_b64 = slice_image
+
+    for block_key in ("result", "data", "payload", "output", *_CT_MODULE_SUMMARY_KEYS):
+        block = data.get(block_key)
+        if isinstance(block, dict):
+            grade_raw = grade_raw or _extract_grade_from_block(block)
+            conf_raw = conf_raw or _extract_confidence_from_block(block)
+            if not image_b64:
+                image_b64 = _extract_base64_from_value(block, allow_raw_fallback=False)
+
+    if grade_raw is None:
+        grade_raw = _extract_grade_from_block(data) or _find_in_obj(data, _GRADE_KEY_HINTS)
+    if conf_raw is None:
+        conf_raw = _extract_confidence_from_block(data) or _find_in_obj(data, _CONF_KEY_HINTS)
+    if not image_b64:
+        image_b64 = _extract_result_image_b64(data)
 
     grade_label = _normalize_grade_text(grade_raw) or (str(grade_raw).strip() if grade_raw else "")
-    confidence: float | None = None
-    if conf_raw is not None:
-        try:
-            confidence = float(conf_raw)
-            if confidence > 1.0:
-                confidence = confidence / 100.0
-        except (TypeError, ValueError):
-            confidence = None
-
-    image_b64 = ""
-    if isinstance(image_raw, str):
-        image_b64 = image_raw
-        if image_b64.startswith("data:image"):
-            image_b64 = image_b64.split(",", 1)[-1]
+    confidence = _normalize_confidence(conf_raw)
 
     msg_parts: list[str] = []
     if grade_label:
@@ -179,14 +587,42 @@ def parse_grading_response(data: Any) -> dict[str, Any]:
     api_msg = data.get("message") or data.get("msg") or data.get("detail")
     if api_msg and str(api_msg) not in msg_parts:
         msg_parts.append(str(api_msg))
+    if image_b64 and not any("标注" in p or "可视化" in p for p in msg_parts):
+        msg_parts.append("已返回标注可视化图像")
+    if selected_slice_meta.get("selected_slice_filename"):
+        msg_parts.append(
+            f"展示切片 {selected_slice_meta['selected_slice_filename']}（resultBase64 标注图）"
+        )
+    if not grade_label and image_b64:
+        msg_parts.append("接口未返回本例分级字段，已提供病灶勾画可视化")
+
+    api_status = str(data.get("status") or "").lower()
+    result_count = data.get("count")
+    if isinstance(results, list) and not results and result_count not in (None, 0):
+        msg_parts.append(f"接口声明 count={result_count} 但 results 为空，请让同学确认 CT 模块返回结构")
+
+    status = "ok"
+    if api_status in ("error", "failed", "failure"):
+        status = "error"
+    elif not grade_label and not image_b64:
+        if api_status in ("done", "success", "ok") or data.get("success") is True or data.get("code") in (0, 200, "0", "200"):
+            status = "ok"
+            if not msg_parts:
+                msg_parts.append("分析已完成，但未解析到诊断分级或标注图，请展开查看接口原始返回")
+        else:
+            status = "error"
+
+    raw_debug = _summarize_api_payload(data)
+    raw_debug.update(selected_slice_meta)
+    raw_debug["slim_payload"] = _slim_raw_for_client(data)
 
     return {
-        "status": "ok" if grade_label or image_b64 else "ok",
+        "status": status,
         "message": " · ".join(msg_parts) if msg_parts else "DICOM 已提交至影像诊断分析服务",
         "grade_label": grade_label,
         "confidence": confidence,
         "result_image_base64": image_b64,
-        "raw": _slim_raw_for_client(data),
+        "raw": raw_debug,
     }
 
 
@@ -260,6 +696,7 @@ async def predict_grade_from_imaging(
 
     parsed = parse_grading_response(payload)
     parsed["dicom_count"] = len(dicom_files)
+    parsed["_api_payload"] = payload
     if parsed["status"] == "ok" and not parsed.get("message"):
         parsed["message"] = f"已分析 {len(dicom_files)} 个 DICOM 切片"
     return parsed

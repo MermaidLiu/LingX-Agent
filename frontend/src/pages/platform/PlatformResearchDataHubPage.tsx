@@ -1,16 +1,17 @@
 import { ExperimentOutlined, FileSearchOutlined, MergeCellsOutlined, ReadOutlined } from "@ant-design/icons";
 import { Button, Space, Tag, Typography } from "antd";
 import { Link } from "react-router-dom";
+import WorkflowContextBanner from "../../components/platform/WorkflowContextBanner";
 
 const { Title, Paragraph, Text } = Typography;
 
 const MODULES = [
   {
     key: "clinical",
-    path: "/knowledge/data/clinical",
-    title: "临床及病理数据分析",
-    desc: "面向临床、病理、随访等结构化数据，用于病理分级相关因素、生存分析、预后模型等任务。",
-    tags: ["病理分级相关因素", "生存分析", "预后模型", "亚组分析"],
+    path: "/db/clinical",
+    title: "临床数据集 · Excel 导入",
+    desc: "按两行表头 Excel 导入患者信息、影像/病理文件关联，进入数据处理、基础/高级统计与机器学习流程。",
+    tags: ["Excel 导入", "变量管理", "基础统计", "机器学习"],
     theme: "navy" as const,
     icon: <FileSearchOutlined style={{ fontSize: 28 }} />,
   },
@@ -43,9 +44,11 @@ export default function PlatformResearchDataHubPage() {
       <Title level={4} style={{ marginBottom: 4 }}>
         请选择分析模块
       </Title>
-      <Paragraph type="secondary" style={{ marginBottom: 24 }}>
-        首页保留三个入口，点击后进入对应的独立分析工作台
+      <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+        首页保留三个入口，点击后进入对应的独立分析工作台（自动关联工作台病例与智能分析结果）
       </Paragraph>
+
+      <WorkflowContextBanner compact />
 
       <div className="pmp-module-cards">
         {MODULES.map((m) => (

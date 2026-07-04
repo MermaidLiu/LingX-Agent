@@ -11,6 +11,7 @@ from app.models.platform_schemas import (
     DiagnosisProbability,
     PlatformDiagnosisResult,
     PlatformImagingRow,
+    PlatformPathologyRow,
     PlatformPatientRow,
 )
 
@@ -192,19 +193,29 @@ def record_to_patient_row(record: PetCtInterviewRecord, row_id: str | None = Non
     )
 
 
+def _has_pathology_imaging_artifact(rx) -> bool:
+    for u in rx.document_uploads or []:
+        if isinstance(u, dict) and u.get("source") == "pathology_imaging_api":
+            return True
+    return bool((rx.pathology_grade or "").strip())
+
+
 def record_to_imaging_row(record: PetCtInterviewRecord) -> PlatformImagingRow | None:
     p = record.patient_base_info
     rx = record.research_extensions
     narrative = rx.pet_ct_report_narrative or rx.imaging_report_text or ""
-    if not narrative and not rx.lesions and not rx.global_quant.suv_max:
+    has_pathology = bool(rx.pathology_grade.strip())
+    if not narrative and not rx.lesions and not rx.global_quant.suv_max and not has_pathology:
         uploads = rx.document_uploads or []
         dicom_uploads = [u for u in uploads if isinstance(u, dict) and u.get("kind") == "dicom"]
         if not dicom_uploads:
             return None
 
     exam_item = p.exam_item or "影像检查"
-    modality = "PET-CT"
-    if re.search(r"\bCT\b|计算机断层", exam_item, re.I) and not re.search(r"PET", exam_item, re.I):
+    modality = "CT"
+    if re.search(r"PET|FDG", exam_item + narrative, re.I):
+        modality = "PET-CT"
+    elif re.search(r"\bCT\b|计算机断层", exam_item, re.I) and not re.search(r"PET", exam_item, re.I):
         modality = "CT"
     elif re.search(r"MR|MRI|磁共振", exam_item, re.I):
         modality = "MRI"
@@ -212,10 +223,18 @@ def record_to_imaging_row(record: PetCtInterviewRecord) -> PlatformImagingRow | 
         modality = "超声"
 
     gq = rx.global_quant
-    summary = narrative.strip().split("\n")[0][:120] if narrative else exam_item
-    dicom_count = sum(
-        1 for u in (rx.document_uploads or []) if isinstance(u, dict) and u.get("kind") == "dicom"
-    )
+    if has_pathology:
+        conf_txt = ""
+        if rx.pathology_confidence is not None:
+            conf_txt = f"（置信度 {rx.pathology_confidence * 100:.0f}%）"
+        summary = f"影像诊断分析：{rx.pathology_grade}{conf_txt}"
+    else:
+        summary = narrative.strip().split("\n")[0][:120] if narrative else exam_item
+
+    dicom_count = 0
+    for u in rx.document_uploads or []:
+        if isinstance(u, dict) and u.get("kind") == "dicom":
+            dicom_count += int(u.get("dicom_count") or u.get("count") or 1)
     if dicom_count == 0 and narrative:
         dicom_count = max(1, len(rx.lesions) * 200)
 
@@ -253,6 +272,56 @@ def record_to_imaging_row(record: PetCtInterviewRecord) -> PlatformImagingRow | 
         reportSummary=summary,
         reportText=narrative or f"【检查项目】{exam_item}\n【备注】由平台自动入库生成。",
         status="已归档",
+        hasAnnotatedImage=_has_pathology_imaging_artifact(rx),
+    )
+
+
+def record_to_pathology_row(record: PetCtInterviewRecord) -> PlatformPathologyRow | None:
+    p = record.patient_base_info
+    rx = record.research_extensions
+    grade = (rx.pathology_grade or "").strip()
+    narrative = rx.imaging_report_text or rx.pet_ct_report_narrative or ""
+    if not grade and "影像诊断分析" not in narrative:
+        return None
+
+    dicom_count = 0
+    for u in rx.document_uploads or []:
+        if isinstance(u, dict) and u.get("kind") == "dicom":
+            dicom_count += int(u.get("dicom_count") or u.get("count") or 1)
+
+    exam_date = ""
+    if p.interview_time:
+        exam_date = p.interview_time.strftime("%Y-%m-%d") if hasattr(p.interview_time, "strftime") else str(p.interview_time)[:10]
+    if not exam_date:
+        exam_date = datetime.now().strftime("%Y-%m-%d")
+
+    conf_txt = ""
+    if rx.pathology_confidence is not None:
+        conf_txt = f" · 置信度 {rx.pathology_confidence * 100:.0f}%"
+
+    summary = grade or narrative.strip().split("\n")[0][:160]
+    if rx.pathology_evidence:
+        summary = f"{summary} · {rx.pathology_evidence[0][:80]}"
+
+    return PlatformPathologyRow(
+        id=f"PATH-{p.exam_id}" if p.exam_id else f"PATH-{exam_date.replace('-', '')}",
+        patientId=rx.patient_internal_id or p.medical_record_id or p.exam_id or "—",
+        patientName=p.name or "未知",
+        sampleSite=p.exam_item or "DICOM 影像",
+        stainType="AI 影像诊断",
+        gradeLabel=grade or "待判定",
+        whoGrade="—",
+        ki67="—",
+        p53="—",
+        pmpSubtype="—",
+        slideCount=dicom_count or 1,
+        reportDate=exam_date,
+        pathologist="AI 影像诊断分析",
+        summary=summary + conf_txt,
+        confidence=rx.pathology_confidence,
+        dicomCount=dicom_count or 1,
+        status="已签发",
+        hasAnnotatedImage=_has_pathology_imaging_artifact(rx),
     )
 
 

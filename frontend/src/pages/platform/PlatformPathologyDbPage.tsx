@@ -1,30 +1,65 @@
-import { CloudUploadOutlined, ExperimentOutlined } from "@ant-design/icons";
-import { App, Button, Descriptions, Drawer, Space, Tag, Typography } from "antd";
-import { useMemo, useState } from "react";
+import { ExperimentOutlined, FileImageOutlined } from "@ant-design/icons";
+import { Button, Descriptions, Drawer, Spin, Tabs, Tag, Typography } from "antd";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { platformListPathology, type PlatformPathologyRecord } from "../../api/platform";
 import { DatabasePageShell, DbTitle, GradeTag, StatusTag } from "../../components/platform/DatabasePageShell";
-import { MOCK_PATHOLOGY_DB, type PathologyRecord } from "../../data/databaseMock";
+import { hasAnnotatedImage, imageSrcFromBase64 } from "../../lib/pathologyImage";
+import { loadPathologyImage } from "../../lib/pathologyImagingCache";
 
-const { Text, Paragraph } = Typography;
+const { Paragraph, Text } = Typography;
 
 export default function PlatformPathologyDbPage() {
-  const { message } = App.useApp();
-  const [detail, setDetail] = useState<PathologyRecord | null>(null);
+  const [detail, setDetail] = useState<PlatformPathologyRecord | null>(null);
+  const [data, setData] = useState<PlatformPathologyRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [annotatedB64, setAnnotatedB64] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      setData(await platformListPathology());
+    } catch {
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (!detail?.hasAnnotatedImage) {
+      setAnnotatedB64(null);
+      return;
+    }
+    const examId = detail.id.replace(/^PATH-/, "");
+    void loadPathologyImage(examId).then(setAnnotatedB64);
+  }, [detail]);
 
   const stats = useMemo(() => {
-    const high = MOCK_PATHOLOGY_DB.filter((r) => r.gradeLabel === "高级别").length;
-    const low = MOCK_PATHOLOGY_DB.filter((r) => r.gradeLabel === "低级别").length;
-    const pmp = MOCK_PATHOLOGY_DB.filter((r) => r.pmpSubtype && r.pmpSubtype !== "—").length;
+    const high = data.filter((r) => r.gradeLabel === "高级别").length;
+    const low = data.filter((r) => r.gradeLabel === "低级别").length;
     return [
-      { title: "病理报告", value: MOCK_PATHOLOGY_DB.length, suffix: "份" },
+      { title: "病理/影像诊断", value: data.length, suffix: "份" },
       { title: "高级别", value: high, suffix: "例", color: "#cf1322" },
       { title: "低级别", value: low, suffix: "例", color: "#3f8600" },
-      { title: "PMP 分型", value: pmp, suffix: "例", color: "#1677ff" },
+      { title: "含标注图", value: data.filter((r) => r.hasAnnotatedImage).length, suffix: "例", color: "#1677ff" },
     ];
-  }, []);
+  }, [data]);
+
+  if (loading) {
+    return (
+      <div className="pmp-section" style={{ textAlign: "center", padding: 48 }}>
+        <Spin />
+      </div>
+    );
+  }
 
   return (
     <>
-      <DatabasePageShell<PathologyRecord>
+      <DatabasePageShell<PlatformPathologyRecord>
         title={
           <DbTitle level={4} style={{ margin: 0 }}>
             <ExperimentOutlined style={{ marginRight: 8, color: "#1677ff" }} />
@@ -32,21 +67,20 @@ export default function PlatformPathologyDbPage() {
           </DbTitle>
         }
         extra={
-          <Button type="primary" icon={<CloudUploadOutlined />} onClick={() => message.info("上传病理切片（演示）")}>
-            上传切片
-          </Button>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            智能分析入库后自动同步 · 含 AI 影像诊断分级与标注图
+          </Text>
         }
         stats={stats}
-        data={MOCK_PATHOLOGY_DB}
+        data={data}
         rowKey={(r) => r.id}
-        filterPlaceholder="搜索患者 / 病理号 / DPAM·PMCA"
+        filterPlaceholder="搜索患者 / 病理号 / 分级"
         filterFn={(row, kw) =>
           !kw ||
-          row.id.toLowerCase().includes(kw) ||
-          row.patientName.toLowerCase().includes(kw) ||
-          row.sampleSite.toLowerCase().includes(kw) ||
-          row.pmpSubtype.toLowerCase().includes(kw) ||
-          row.summary.toLowerCase().includes(kw)
+          (row.id || "").toLowerCase().includes(kw) ||
+          (row.patientName || "").toLowerCase().includes(kw) ||
+          (row.summary || "").toLowerCase().includes(kw) ||
+          (row.gradeLabel || "").toLowerCase().includes(kw)
         }
         modalityOptions={[
           { value: "高级别", label: "高级别" },
@@ -56,22 +90,14 @@ export default function PlatformPathologyDbPage() {
         columns={[
           { title: "病理号", dataIndex: "id", width: 150 },
           { title: "患者", width: 88, render: (_, r) => r.patientName },
-          { title: "取材部位", dataIndex: "sampleSite", width: 100 },
-          { title: "染色", dataIndex: "stainType", width: 100 },
+          { title: "来源", dataIndex: "stainType", width: 110 },
           { title: "分级", width: 88, render: (_, r) => <GradeTag label={r.gradeLabel} /> },
-          { title: "WHO", dataIndex: "whoGrade", width: 56 },
+          { title: "DICOM", dataIndex: "dicomCount", width: 72 },
           {
-            title: "PMP 分型",
-            width: 88,
-            render: (_, r) =>
-              r.pmpSubtype && r.pmpSubtype !== "—" ? (
-                <Tag color={r.pmpSubtype === "PMCA" ? "red" : "green"}>{r.pmpSubtype}</Tag>
-              ) : (
-                "—"
-              ),
+            title: "标注图",
+            width: 72,
+            render: (_, r) => (r.hasAnnotatedImage ? <Tag color="blue">有</Tag> : "—"),
           },
-          { title: "Ki-67", dataIndex: "ki67", width: 72 },
-          { title: "切片数", dataIndex: "slideCount", width: 72 },
           { title: "日期", dataIndex: "reportDate", width: 100 },
           { title: "状态", width: 88, render: (_, r) => <StatusTag status={r.status} /> },
           {
@@ -87,41 +113,44 @@ export default function PlatformPathologyDbPage() {
         ]}
       />
 
-      <Drawer title="病理详情" open={!!detail} onClose={() => setDetail(null)} width={520}>
+      <Drawer title="病理详情" open={!!detail} onClose={() => setDetail(null)} width={560}>
         {detail ? (
-          <>
-            <Space wrap style={{ marginBottom: 16 }}>
-              {["HE", "Ki-67", "P53"].map((s) => (
-                <div key={s} className="pmp-data-thumb" style={{ width: 80, height: 80 }}>
-                  <span style={{ fontSize: 22 }}>🔬</span>
-                  {s}
-                </div>
-              ))}
-            </Space>
-            <Descriptions column={1} size="small" bordered>
-              <Descriptions.Item label="病理号">{detail.id}</Descriptions.Item>
-              <Descriptions.Item label="患者">{detail.patientName}</Descriptions.Item>
-              <Descriptions.Item label="取材">{detail.sampleSite}</Descriptions.Item>
-              <Descriptions.Item label="病理分级">
-                <GradeTag label={detail.gradeLabel} /> WHO {detail.whoGrade}
-              </Descriptions.Item>
-              <Descriptions.Item label="免疫组化">
-                Ki-67 {detail.ki67} · P53 {detail.p53}
-              </Descriptions.Item>
-              {detail.pmpSubtype !== "—" ? (
-                <Descriptions.Item label="PMP 依据">
-                  {detail.pmpSubtype === "DPAM" || detail.pmpSubtype === "LAMN"
-                    ? "[低级别] 扩散性腹膜腺瘤病 / 低级别粘液性表型"
-                    : "[高级别] 腹膜粘液癌表型"}
-                </Descriptions.Item>
-              ) : null}
-              <Descriptions.Item label="诊断摘要">{detail.summary}</Descriptions.Item>
-              <Descriptions.Item label="签发">{detail.pathologist} · {detail.reportDate}</Descriptions.Item>
-            </Descriptions>
-            <Paragraph type="secondary" style={{ marginTop: 12, fontSize: 12 }}>
-              支持 WS I 全切片浏览与 AI 辅助分级（演示）。
-            </Paragraph>
-          </>
+          <Tabs
+            items={[
+              {
+                key: "annotated",
+                label: "标注图",
+                children: hasAnnotatedImage(annotatedB64 || undefined) ? (
+                  <img
+                    src={imageSrcFromBase64(annotatedB64!)}
+                    alt="标注病灶图"
+                    style={{ maxWidth: "100%", borderRadius: 8, border: "1px solid #e8edf5", background: "#0a0a0a" }}
+                  />
+                ) : (
+                  <Paragraph type="secondary">暂无标注图（请先在智能分析完成入库）</Paragraph>
+                ),
+              },
+              {
+                key: "report",
+                label: "诊断报告",
+                children: (
+                  <Descriptions column={1} size="small" bordered>
+                    <Descriptions.Item label="病理号">{detail.id}</Descriptions.Item>
+                    <Descriptions.Item label="患者">{detail.patientName}</Descriptions.Item>
+                    <Descriptions.Item label="取材">{detail.sampleSite}</Descriptions.Item>
+                    <Descriptions.Item label="病理分级">
+                      <GradeTag label={detail.gradeLabel} />
+                    </Descriptions.Item>
+                    {detail.confidence != null ? (
+                      <Descriptions.Item label="置信度">{(detail.confidence * 100).toFixed(0)}%</Descriptions.Item>
+                    ) : null}
+                    <Descriptions.Item label="诊断摘要">{detail.summary}</Descriptions.Item>
+                    <Descriptions.Item label="签发">{detail.pathologist} · {detail.reportDate}</Descriptions.Item>
+                  </Descriptions>
+                ),
+              },
+            ]}
+          />
         ) : null}
       </Drawer>
     </>

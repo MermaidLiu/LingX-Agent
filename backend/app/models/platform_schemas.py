@@ -62,6 +62,28 @@ class PlatformImagingRow(BaseModel):
     reportSummary: str = ""
     reportText: str = ""
     status: Literal["已归档", "待审核", "解析中"] = "已归档"
+    hasAnnotatedImage: bool = False
+
+
+class PlatformPathologyRow(BaseModel):
+    id: str
+    patientId: str
+    patientName: str
+    sampleSite: str = "—"
+    stainType: str = "影像 AI 分析"
+    gradeLabel: str = "—"
+    whoGrade: str = "—"
+    ki67: str = "—"
+    p53: str = "—"
+    pmpSubtype: str = "—"
+    slideCount: int = 0
+    reportDate: str = ""
+    pathologist: str = "AI 影像诊断"
+    summary: str = ""
+    confidence: float | None = None
+    dicomCount: int = 0
+    status: Literal["已签发", "待复核", "制片中"] = "已签发"
+    hasAnnotatedImage: bool = False
 
 
 class AnalysisIntentBody(BaseModel):
@@ -79,6 +101,21 @@ class PathologyImagingGradeResult(BaseModel):
     result_image_base64: str = ""
     dicom_count: int = 0
     raw: dict[str, Any] = Field(default_factory=dict)
+    exam_id: str = ""
+    saved: bool = False
+    annotation_dataset_id: str = ""
+    annotation_slice_count: int = 0
+    annotation_slices_with_mask: int = 0
+
+
+class AnnotationDatasetSummary(BaseModel):
+    dataset_id: str
+    session_id: str = ""
+    exam_id: str = ""
+    created_at: str = ""
+    slice_count: int = 0
+    slices_with_mask: int = 0
+    total_lesion_pixels: int = 0
 
 
 class PlatformChatAnalyzeResponse(BaseModel):
@@ -91,6 +128,46 @@ class PlatformChatAnalyzeResponse(BaseModel):
     ai_reply: str = ""
     llm_model: str = ""
     llm_used: bool = False
+
+
+class PathologySaveRequest(BaseModel):
+    result: PathologyImagingGradeResult
+    uploaded_file_names: list[str] = Field(default_factory=list)
+
+
+class PublicationTopicRow(BaseModel):
+    title: str
+    status: str
+    note: str = ""
+    relevance: int = 0
+
+
+class PlatformPublicationTopicsResponse(BaseModel):
+    existing_topics: list[PublicationTopicRow] = Field(default_factory=list)
+    novel_topics: list[PublicationTopicRow] = Field(default_factory=list)
+    summary: str = ""
+
+
+class PptSlideOut(BaseModel):
+    page: int
+    title: str
+    bullets: list[str] = Field(default_factory=list)
+
+
+class PlatformPptGenerateBody(BaseModel):
+    scenario: Literal["leadership", "academic", "government"] = "academic"
+    title: str = ""
+    pathology_grade: str = ""
+    dicom_count: int = 0
+    radiomics_summary: str = ""
+    template_filename: str = ""
+
+
+class PlatformPptGenerateResponse(BaseModel):
+    scenario: str
+    title: str
+    slides: list[PptSlideOut] = Field(default_factory=list)
+    template_note: str = ""
 
 
 class PlatformSaveResponse(BaseModel):
@@ -115,6 +192,7 @@ class PlatformResearchRunBody(BaseModel):
     exclusion: str = ""
     outcome: str = ""
     indicators: dict[str, str] = Field(default_factory=dict)
+    workflow_context: dict[str, Any] = Field(default_factory=dict)
 
 
 class PlatformResearchRunResponse(BaseModel):

@@ -3,6 +3,7 @@ import PlatformLayout from "./layouts/PlatformLayout";
 import BasicLayout from "./layouts/BasicLayout";
 import DashboardHome from "./pages/DashboardHome";
 import PlatformChatPage from "./pages/platform/PlatformChatPage";
+import PlatformClinicalDatasetPage from "./pages/platform/PlatformClinicalDatasetPage";
 import PlatformClinicalAnalysisPage from "./pages/platform/PlatformClinicalAnalysisPage";
 import PlatformDiagnosisPage from "./pages/platform/PlatformDiagnosisPage";
 import PlatformImagingAnalysisPage from "./pages/platform/PlatformImagingAnalysisPage";
@@ -13,6 +14,9 @@ import PlatformPatientDbPage from "./pages/platform/PlatformPatientDbPage";
 import PlatformPlaceholderPage from "./pages/platform/PlatformPlaceholderPage";
 import PlatformResearchDataHubPage from "./pages/platform/PlatformResearchDataHubPage";
 import PlatformResearchExtensionPage from "./pages/platform/PlatformResearchExtensionPage";
+import PlatformResearchPublicationPage from "./pages/platform/PlatformResearchPublicationPage";
+import PlatformResearchPptPage from "./pages/platform/PlatformResearchPptPage";
+import PlatformPathologyDbPage from "./pages/platform/PlatformPathologyDbPage";
 import PlatformWorkflowPage from "./pages/platform/PlatformWorkflowPage";
 
 /** 旧版模块入口（保留兼容，不在主导航展示） */
@@ -30,8 +34,10 @@ export default function App() {
         <Route index element={<PlatformChatPage />} />
         <Route path="workflow" element={<PlatformWorkflowPage />} />
         <Route path="db/patients" element={<PlatformPatientDbPage />} />
+        <Route path="db/clinical" element={<PlatformClinicalDatasetPage />} />
+        <Route path="db/clinical/:id" element={<PlatformClinicalDatasetPage />} />
         <Route path="db/imaging" element={<PlatformImagingDbPage />} />
-        <Route path="db/pathology" element={<Navigate to="/db/patients" replace />} />
+        <Route path="db/pathology" element={<PlatformPathologyDbPage />} />
         <Route path="db/genetics" element={<Navigate to="/db/patients" replace />} />
         <Route path="db/literature" element={<Navigate to="/knowledge/library" replace />} />
         <Route path="analysis" element={<PlatformDiagnosisPage />} />
@@ -45,10 +51,8 @@ export default function App() {
         <Route path="knowledge/data/imaging" element={<PlatformImagingAnalysisPage />} />
         <Route path="knowledge/data/multimodal" element={<PlatformMultimodalAnalysisPage />} />
         <Route path="knowledge/library" element={<PlatformKnowledgeLibraryPage />} />
-        <Route path="research/stats" element={<Navigate to="/knowledge/library" replace />} />
-        <Route path="research/charts" element={<Navigate to="/knowledge/library" replace />} />
-        <Route path="research/review" element={<Navigate to="/knowledge/library" replace />} />
-        <Route path="research/ppt" element={<Navigate to="/knowledge/library" replace />} />
+        <Route path="knowledge/publications" element={<PlatformResearchPublicationPage />} />
+        <Route path="knowledge/ppt" element={<PlatformResearchPptPage />} />
         <Route path="settings" element={<PlatformPlaceholderPage />} />
       </Route>
 

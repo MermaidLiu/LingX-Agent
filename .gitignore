@@ -9,6 +9,7 @@ dist/
 .DS_Store
 models/*.pth
 /data/
+backend/data/
 *.log
 .cursor/
 agent-transcripts/

@@ -1,6 +1,7 @@
-import { DatabaseOutlined, TeamOutlined } from "@ant-design/icons";
+import { DatabaseOutlined, TeamOutlined, UploadOutlined } from "@ant-design/icons";
 import { App, AutoComplete, Button, Input, Space, Spin, Table, Tag, Typography } from "antd";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { platformListPatients, type PlatformPatient } from "../../api/platform";
 
 const { Title, Text } = Typography;
@@ -102,6 +103,11 @@ export default function PlatformPatientDbPage() {
           患者数据库
         </Title>
         <Space>
+          <Link to="/db/clinical">
+            <Button size="small" type="primary" ghost icon={<UploadOutlined />}>
+              导入临床 Excel
+            </Button>
+          </Link>
           <Button size="small" onClick={fetchPatients}>
             刷新
           </Button>

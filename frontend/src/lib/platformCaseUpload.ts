@@ -1,5 +1,3 @@
-/** In-memory store for case files uploaded on the workbench (not persisted across refresh). */
-
 import type { UploadFile } from "antd/es/upload/interface";
 
 let pendingFiles: File[] = [];
@@ -35,6 +33,45 @@ export function getPendingCaseFileNames(): string[] {
   return pendingFiles.map((f) => f.name);
 }
 
+export function pendingCaseFilesChanged(storedNames: string[]): boolean {
+  if (!pendingFiles.length) return false;
+  const a = pendingFiles.map((f) => f.name).sort().join("\0");
+  const b = [...storedNames].sort().join("\0");
+  return a !== b;
+}
+
 export function clearPendingCaseFiles() {
   pendingFiles = [];
+}
+
+/** Convert native File list to Ant Design UploadFile for composer UI. */
+export function filesToUploadFiles(files: File[]) {
+  return files.map((f, i) => ({
+    uid: `wf-${f.name}-${f.size}-${f.lastModified}-${i}`,
+    name: f.name,
+    size: f.size,
+    type: f.type,
+    originFileObj: f as unknown as UploadFile["originFileObj"],
+  })) as UploadFile[];
+}
+
+/** Merge workbench pending files with composer attachments (deduped). */
+export function mergeAnalysisFiles(extra: File[] = []): File[] {
+  const seen = new Set<string>();
+  const out: File[] = [];
+  for (const f of [...pendingFiles, ...extra]) {
+    const key = `${f.name}\0${f.size}\0${f.lastModified}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(f);
+  }
+  return out;
+}
+
+/** DICOM / ZIP files from the workbench for imaging tasks. */
+export function getPendingDicomFiles(): File[] {
+  return pendingFiles.filter((f) => {
+    const lower = f.name.toLowerCase();
+    return lower.endsWith(".dcm") || lower.endsWith(".dicom") || lower.endsWith(".zip");
+  });
 }

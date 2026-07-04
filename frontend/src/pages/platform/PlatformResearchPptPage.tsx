@@ -1,63 +1,97 @@
-import { FilePptOutlined } from "@ant-design/icons";
-import { App, Button, Col, Input, List, Row, Space, Tag, Typography } from "antd";
+import { FilePptOutlined, UploadOutlined } from "@ant-design/icons";
+import { App, Button, Col, Input, List, Radio, Row, Space, Tag, Typography, Upload } from "antd";
+import type { UploadFile } from "antd/es/upload/interface";
 import { useState } from "react";
-import { MOCK_PPT_SLIDES, MOCK_RESEARCH_TOPICS } from "../../data/researchMock";
+import { platformPptGenerate, type PptSlide } from "../../api/platform";
+import WorkflowContextBanner from "../../components/platform/WorkflowContextBanner";
+import { loadModuleResults } from "../../lib/researchModuleResults";
+import { getWorkflowContext } from "../../lib/workflowContext";
 
 const { Title, Paragraph, Text } = Typography;
+
+const SCENARIOS = [
+  { value: "leadership", label: "领导汇报", desc: "结论优先、资源与计划" },
+  { value: "academic", label: "学术分享", desc: "Methods / Results / Discussion" },
+  { value: "government", label: "政府汇报", desc: "建设成效与社会效益" },
+] as const;
 
 export default function PlatformResearchPptPage() {
   const { message } = App.useApp();
   const [title, setTitle] = useState("PMP 专病库科研汇报");
-  const [slides, setSlides] = useState<typeof MOCK_PPT_SLIDES | null>(null);
+  const [scenario, setScenario] = useState<"leadership" | "academic" | "government">("leadership");
+  const [templateFile, setTemplateFile] = useState<UploadFile | null>(null);
+  const [slides, setSlides] = useState<PptSlide[] | null>(null);
   const [activePage, setActivePage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [templateNote, setTemplateNote] = useState("");
 
-  function generate() {
+  async function generate() {
     setLoading(true);
-    setTimeout(() => {
-      const customized = MOCK_PPT_SLIDES.map((s, i) =>
-        i === 0 ? { ...s, bullets: [title, s.bullets[1], s.bullets[2]] } : s,
-      );
-      setSlides(customized);
+    try {
+      const ctx = getWorkflowContext();
+      const linked = loadModuleResults();
+      const res = await platformPptGenerate({
+        scenario,
+        title,
+        pathology_grade: ctx.pathology?.grade_label,
+        dicom_count: ctx.pathology?.dicom_count,
+        radiomics_summary: linked.imaging?.summary,
+        template_filename: templateFile?.name,
+      });
+      setSlides(res.slides);
+      setTemplateNote(res.template_note);
       setActivePage(1);
+      message.success(`已生成 ${res.slides.length} 页 ${SCENARIOS.find((s) => s.value === scenario)?.label} PPT 内容`);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "生成失败");
+    } finally {
       setLoading(false);
-      message.success(`已生成 ${customized.length} 页 PPT 大纲（演示）`);
-    }, 1000);
+    }
   }
 
   const current = slides?.find((s) => s.page === activePage);
 
   return (
     <div className="pmp-section">
-      <Title level={4} style={{ marginBottom: 16 }}>
+      <Title level={4} style={{ marginBottom: 8 }}>
         <FilePptOutlined style={{ marginRight: 8, color: "#1677ff" }} />
         PPT 生成
       </Title>
+      <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+        上传 PPT 模板（可选），平台自动填充智能分析、组学建模与科研选题内容。
+      </Paragraph>
+
+      <WorkflowContextBanner compact />
 
       <div className="pmp-card" style={{ padding: 16, marginBottom: 16 }}>
-        <Space wrap style={{ width: "100%" }}>
-          <Input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="演示文稿标题"
-            style={{ width: 320 }}
-          />
-          <Button type="primary" loading={loading} onClick={generate}>
-            生成完整 PPT
+        <Space direction="vertical" style={{ width: "100%" }} size={12}>
+          <Text strong>汇报场景</Text>
+          <Radio.Group
+            value={scenario}
+            onChange={(e) => setScenario(e.target.value)}
+            optionType="button"
+            buttonStyle="solid"
+          >
+            {SCENARIOS.map((s) => (
+              <Radio.Button key={s.value} value={s.value}>
+                {s.label}
+              </Radio.Button>
+            ))}
+          </Radio.Group>
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="演示文稿标题" />
+          <Upload
+            maxCount={1}
+            accept=".ppt,.pptx"
+            fileList={templateFile ? [templateFile] : []}
+            beforeUpload={() => false}
+            onChange={({ fileList }) => setTemplateFile(fileList[0] ?? null)}
+          >
+            <Button icon={<UploadOutlined />}>上传 PPT 模板（.ppt / .pptx）</Button>
+          </Upload>
+          <Button type="primary" loading={loading} onClick={() => void generate()}>
+            生成 PPT 内容
           </Button>
-          {slides ? (
-            <>
-              <Button onClick={() => message.info("下载 .pptx（演示）")}>下载 PPTX</Button>
-              <Button onClick={() => message.info("下载 PDF（演示）")}>下载 PDF</Button>
-            </>
-          ) : null}
-        </Space>
-        <Space wrap style={{ marginTop: 12 }}>
-          {MOCK_RESEARCH_TOPICS.map((t) => (
-            <Tag key={t} style={{ cursor: "pointer" }} onClick={() => setTitle(t)}>
-              {t}
-            </Tag>
-          ))}
+          {templateNote ? <Text type="secondary" style={{ fontSize: 12 }}>{templateNote}</Text> : null}
         </Space>
       </div>
 
@@ -86,22 +120,15 @@ export default function PlatformResearchPptPage() {
                 )}
               />
             ) : (
-              <Paragraph type="secondary">生成后将显示页纲列表</Paragraph>
+              <Paragraph type="secondary">生成后将显示页纲</Paragraph>
             )}
           </div>
         </Col>
         <Col xs={24} md={16}>
-          <div
-            className="pmp-card"
-            style={{
-              padding: 24,
-              minHeight: 360,
-              background: "linear-gradient(145deg,#f8fafc,#fff)",
-            }}
-          >
+          <div className="pmp-card" style={{ padding: 24, minHeight: 360 }}>
             {current ? (
               <>
-                <Tag color="blue">第 {current.page} 页</Tag>
+                <Tag color="blue">第 {current.page} 页 · {SCENARIOS.find((s) => s.value === scenario)?.label}</Tag>
                 <Title level={3} style={{ marginTop: 16, marginBottom: 24 }}>
                   {current.title}
                 </Title>
@@ -112,16 +139,9 @@ export default function PlatformResearchPptPage() {
                 </ul>
               </>
             ) : (
-              <div
-                style={{
-                  height: 300,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Paragraph type="secondary">幻灯片预览区</Paragraph>
-              </div>
+              <Paragraph type="secondary" style={{ textAlign: "center", marginTop: 120 }}>
+                幻灯片预览区
+              </Paragraph>
             )}
           </div>
         </Col>

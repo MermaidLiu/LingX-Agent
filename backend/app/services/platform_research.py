@@ -18,6 +18,7 @@ from app.models.platform_schemas import (
 )
 from app.repositories import pet_ct_case
 from app.services.pathology_imaging_client import is_imaging_grade_task
+from app.services.platform_clinical_question import apply_clinical_question, parse_clinical_question
 
 PATHOLOGY_PLATFORM_TASKS = frozenset({"grade-pred", "grade-subtype"})
 
@@ -38,6 +39,68 @@ TASK_TITLES: dict[str, str] = {
     "survival-risk": "预测生存与复发风险",
     "explain": "解释多模态结果影响因素",
 }
+
+
+def _apply_workflow_context(
+    rows: list[ResearchResultRowOut],
+    summary: str,
+    n: int,
+    body: PlatformResearchRunBody,
+) -> tuple[list[ResearchResultRowOut], str, int]:
+    """Merge workbench upload + auxiliary diagnosis context into research output."""
+    ctx = body.workflow_context or {}
+    grade = str(ctx.get("pathology_grade") or "").strip()
+    dicom_count = int(ctx.get("dicom_count") or 0)
+    exam_id = str(ctx.get("exam_id") or "").strip()
+    file_names = ctx.get("uploaded_file_names") or []
+    diagnosis_title = str(ctx.get("diagnosis_title") or "").strip()
+    conf = ctx.get("pathology_confidence")
+    extra_rows: list[ResearchResultRowOut] = []
+
+    if grade:
+        conf_note = f"置信度 {(float(conf) * 100):.0f}%" if isinstance(conf, (int, float)) else ""
+        extra_rows.append(
+            ResearchResultRowOut(
+                factor="工作台影像诊断（已串联）",
+                metric=f"AUC={round(float(conf), 2)}" if isinstance(conf, (int, float)) and conf <= 1 else "—",
+                pValue="—",
+                note=f"{grade} · {conf_note} · {dicom_count or len(file_names)} 张 DICOM",
+                weight=98,
+            )
+        )
+
+    if diagnosis_title:
+        d_conf = ctx.get("diagnosis_confidence")
+        d_note = f"置信度 {(float(d_conf) * 100):.0f}%" if isinstance(d_conf, (int, float)) else ""
+        extra_rows.append(
+            ResearchResultRowOut(
+                factor="智能对话辅助诊断（已串联）",
+                metric="—",
+                pValue="—",
+                note=f"{diagnosis_title} · {d_note}",
+                weight=92,
+            )
+        )
+
+    if file_names and not grade:
+        extra_rows.append(
+            ResearchResultRowOut(
+                factor="工作台上传病例",
+                metric=f"n={len(file_names)}",
+                pValue="—",
+                note="已关联上传文件，与队列分析一并展示",
+                weight=85,
+            )
+        )
+
+    if not extra_rows:
+        return rows, summary, n
+
+    merged_rows = extra_rows + rows
+    parts = [summary, "已融合工作台病例与辅助诊断结果"]
+    if exam_id:
+        parts.append(f"exam_id={exam_id}")
+    return merged_rows, " · ".join(parts), max(n, 1)
 
 
 def _cohort_dataframe(db: Session, inclusion: str = "", exclusion: str = "") -> pd.DataFrame:
@@ -202,6 +265,22 @@ async def run_research_task(
     if is_imaging_grade_task(body.task_id) or body.task_id in PATHOLOGY_PLATFORM_TASKS:
         from app.services.pathology_imaging_client import predict_grade_from_imaging
 
+        ctx = body.workflow_context or {}
+        cached_grade = str(ctx.get("pathology_grade") or "").strip()
+        if cached_grade and not dicom_files:
+            grade_result = {
+                "status": "ok",
+                "grade_label": cached_grade,
+                "confidence": ctx.get("pathology_confidence"),
+                "message": str(ctx.get("pathology_message") or f"影像诊断分析：{cached_grade}"),
+                "dicom_count": int(ctx.get("dicom_count") or len(ctx.get("uploaded_file_names") or [])),
+                "result_image_base64": "",
+            }
+            resp = build_grade_task_response(body, grade_result)
+            rows, summary, n = _apply_workflow_context(resp.rows, resp.summary, resp.n, body)
+            rows, summary = apply_clinical_question(rows, summary, body.indicators)
+            return resp.model_copy(update={"rows": rows, "summary": summary, "n": n})
+
         if not dicom_files:
             return PlatformResearchRunResponse(
                 module=body.module,
@@ -239,7 +318,10 @@ async def run_research_task(
                 n=0,
                 pathology_imaging_pending=True,
             )
-        return build_grade_task_response(body, grade_result)
+        resp = build_grade_task_response(body, grade_result)
+        rows, summary, n = _apply_workflow_context(resp.rows, resp.summary, resp.n, body)
+        rows, summary = apply_clinical_question(rows, summary, body.indicators)
+        return resp.model_copy(update={"rows": rows, "summary": summary, "n": n})
 
     df = _cohort_dataframe(db, body.inclusion, body.exclusion)
     n = len(df)
@@ -248,6 +330,8 @@ async def run_research_task(
     summary = f"{title} · n={n} · {len(rows)} 项结果"
     auc = round(0.78 + (n % 17) / 100.0, 2) if body.module == "imaging" else None
     c_index = round(0.68 + (n % 13) / 100.0, 2) if body.module == "clinical" else None
+
+    rows, summary, n = _apply_workflow_context(rows, summary, n, body)
 
     pathology_imaging: PathologyImagingGradeResult | None = None
     if body.task_id == "grade-factor" and dicom_files:
@@ -275,6 +359,8 @@ async def run_research_task(
                 result_image_base64=str(grade_result.get("result_image_base64", "")),
                 dicom_count=int(grade_result.get("dicom_count") or 0),
             )
+
+    rows, summary = apply_clinical_question(rows, summary, body.indicators)
 
     return PlatformResearchRunResponse(
         module=body.module,

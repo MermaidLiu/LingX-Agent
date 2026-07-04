@@ -12,6 +12,7 @@ import {
   type ResearchResultRow,
 } from "../../data/researchWorkbenchMock";
 import { loadModuleResults } from "../../lib/researchModuleResults";
+import { getWorkflowContext } from "../../lib/workflowContext";
 
 const { Text } = Typography;
 
@@ -41,6 +42,7 @@ function ContributionChart() {
 
 export default function PlatformMultimodalAnalysisPage() {
   const linked = useMemo(() => loadModuleResults(), []);
+  const workflow = useMemo(() => getWorkflowContext(), []);
 
   const fusionResults: Record<string, ResearchResultRow[]> = {
     "clinical-imaging": [
@@ -78,6 +80,29 @@ export default function PlatformMultimodalAnalysisPage() {
 
   const linkedBanner = (
     <div style={{ marginBottom: 16 }}>
+      {workflow.hasPathologyResult || workflow.diagnosis ? (
+        <Alert
+          type="success"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="已关联工作台智能分析与辅助诊断"
+          description={
+            <Space direction="vertical" size={4}>
+              {workflow.pathology ? (
+                <span>
+                  影像诊断：<Tag color="blue">{workflow.pathology.grade_label}</Tag>
+                  {workflow.pathology.dicom_count ? `${workflow.pathology.dicom_count} 张 DICOM` : ""}
+                </span>
+              ) : null}
+              {workflow.diagnosis ? (
+                <span>
+                  辅助诊断：<Tag color="purple">{workflow.diagnosis.title}</Tag>
+                </span>
+              ) : null}
+            </Space>
+          }
+        />
+      ) : null}
       {linked.clinical && linked.imaging ? (
         <Alert
           type="success"

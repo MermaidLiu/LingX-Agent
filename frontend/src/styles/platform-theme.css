@@ -869,3 +869,311 @@ body {
   text-align: center;
   color: #e2e8f0;
 }
+
+/* ── 智能分析 · 诊断结果页 ── */
+.pmp-diagnosis-results {
+  margin-top: 4px;
+}
+
+.pmp-diagnosis-summary,
+.pmp-diagnosis-viewer,
+.pmp-annotation-dataset {
+  padding: 20px;
+  height: 100%;
+}
+
+.pmp-diagnosis-grade-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.pmp-diagnosis-grade {
+  display: inline-block;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.pmp-diagnosis-grade--red {
+  color: #cf1322;
+}
+.pmp-diagnosis-grade--green {
+  color: #389e0d;
+}
+.pmp-diagnosis-grade--blue {
+  color: #1677ff;
+}
+.pmp-diagnosis-grade--muted {
+  color: #64748b;
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.pmp-diagnosis-confidence {
+  font-size: 14px;
+  color: var(--pmp-text-secondary);
+}
+
+.pmp-diagnosis-bullets {
+  margin: 0 0 16px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: #4b5563;
+}
+
+.pmp-diagnosis-bullets li {
+  margin-bottom: 4px;
+}
+
+.pmp-diagnosis-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--pmp-border);
+}
+
+.pmp-diagnosis-meta-item {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.pmp-diagnosis-meta-item--ok {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.pmp-diagnosis-meta-item--err {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.pmp-diagnosis-viewer-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.pmp-diagnosis-image-wrap {
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0a0a0a;
+  border: 1px solid #1e293b;
+  line-height: 0;
+}
+
+.pmp-diagnosis-image-wrap img {
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+}
+
+.pmp-annotation-dataset {
+  background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
+  border: 1px solid #dbeafe;
+}
+
+.pmp-annotation-dataset-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.pmp-annotation-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.pmp-annotation-stat {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.pmp-annotation-stat--wide {
+  grid-column: span 2;
+}
+
+@media (max-width: 640px) {
+  .pmp-annotation-stat--wide {
+    grid-column: span 1;
+  }
+}
+
+.pmp-annotation-stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1e3a5f;
+  line-height: 1.1;
+}
+
+.pmp-annotation-stat-label {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.pmp-annotation-stat-id {
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #334155;
+  word-break: break-all;
+  margin-top: 4px;
+}
+
+.pmp-clinical-question-summary {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f0f7ff;
+  border: 1px solid #dbeafe;
+}
+
+/* ── 临床数据集（对标深睿导入流程 · 本平台 UI） ── */
+.pmp-clinical-import .ant-upload-drag {
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.pmp-clinical-workbench .pmp-clinical-main-tabs > .ant-tabs-nav {
+  margin-bottom: 12px;
+}
+
+.pmp-clinical-processing-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .pmp-clinical-processing-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pmp-clinical-var-sidebar {
+  padding: 12px;
+}
+
+.pmp-clinical-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.pmp-clinical-stats-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pmp-clinical-stats-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pmp-clinical-tool-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  color: #374151;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.pmp-clinical-tool-card:hover {
+  border-color: #1677ff;
+  color: #1677ff;
+}
+
+.pmp-clinical-tool-card--active {
+  border-color: #1677ff;
+  color: #1677ff;
+  box-shadow: inset 0 -2px 0 #1677ff;
+}
+
+.pmp-clinical-tool-icon {
+  font-size: 16px;
+}
+
+.pmp-clinical-stats-body {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 12px;
+  min-height: 360px;
+}
+
+@media (max-width: 860px) {
+  .pmp-clinical-stats-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pmp-clinical-stats-sidebar {
+  padding: 14px;
+}
+
+.pmp-clinical-stats-main {
+  padding: 16px;
+  min-height: 320px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pmp-clinical-stats-main .ant-table-wrapper {
+  width: 100%;
+  align-self: flex-start;
+}
+
+.pmp-clinical-ml-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.pmp-clinical-ml-grid {
+  display: grid;
+  grid-template-columns: 200px 1fr 220px;
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 1024px) {
+  .pmp-clinical-ml-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pmp-clinical-ml-sidebar,
+.pmp-clinical-ml-main,
+.pmp-clinical-ml-result-panel {
+  padding: 16px;
+}
+
+.pmp-clinical-ml-result {
+  padding-top: 12px;
+  border-top: 1px solid #e8edf5;
+}

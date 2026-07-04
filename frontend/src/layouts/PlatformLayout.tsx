@@ -35,7 +35,9 @@ const MENU: MenuItem[] = [
     label: "数据库",
     children: [
       { key: "/db/patients", label: "患者数据库", path: "/db/patients" },
+      { key: "/db/clinical", label: "临床数据集", path: "/db/clinical" },
       { key: "/db/imaging", label: "影像数据库", path: "/db/imaging" },
+      { key: "/db/pathology", label: "病理数据库", path: "/db/pathology" },
     ],
   },
   {
@@ -89,7 +91,11 @@ export default function PlatformLayout() {
       "/": "智能对话",
       "/workflow": "PMP 智能平台 · 工作台",
       "/db/patients": "患者数据库",
+      "/db/clinical": "临床数据集",
       "/db/imaging": "影像数据库",
+      "/db/pathology": "病理数据库",
+      "/knowledge/publications": "科研选题",
+      "/knowledge/ppt": "PPT 生成",
       "/knowledge": "科研延伸",
       "/knowledge/data": "数据分析",
       "/knowledge/library": "知识库",
@@ -98,7 +104,7 @@ export default function PlatformLayout() {
       "/settings": "系统设置",
     };
     if (loc.pathname.startsWith("/research")) return "科研延伸";
-    if (loc.pathname.startsWith("/knowledge/data/clinical")) return "临床及病理数据分析";
+    if (loc.pathname.startsWith("/db/clinical")) return "临床数据集";
     if (loc.pathname.startsWith("/knowledge/data/imaging")) return "影像数据智能分析";
     if (loc.pathname.startsWith("/knowledge/data/multimodal")) return "多模态联合分析";
     if (loc.pathname.startsWith("/knowledge/data")) return "数据分析";
