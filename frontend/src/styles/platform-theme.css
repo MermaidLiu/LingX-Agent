@@ -1177,3 +1177,25 @@ body {
   padding-top: 12px;
   border-top: 1px solid #e8edf5;
 }
+
+.pmp-roc-chart,
+.pmp-km-chart {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  height: 200px;
+  margin-top: 12px;
+  border-left: 1px solid #cbd5e1;
+  border-bottom: 1px solid #cbd5e1;
+  background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+}
+
+.pmp-roc-dot,
+.pmp-km-dot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #1677ff;
+  transform: translate(-50%, 50%);
+}

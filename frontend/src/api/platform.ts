@@ -390,3 +390,36 @@ export async function platformStats() {
   );
   return data;
 }
+
+export type ClinicalAnalyzeResult = {
+  ok: boolean;
+  analysis: string;
+  summary: string;
+  rows: Record<string, unknown>[];
+  extra: Record<string, unknown>;
+  error?: string;
+  offline?: boolean;
+};
+
+export async function platformClinicalDatasetAnalyze(body: {
+  analysis: string;
+  rows: Record<string, string>[];
+  variables: { name: string; type: string; skipped?: boolean }[];
+  selected_vars?: string[];
+  split_var?: string;
+  group_a?: string;
+  group_b?: string;
+  dependent?: string;
+  independents?: string[];
+  outcome_var?: string;
+  predictor?: string;
+  positive_class?: string;
+  time_var?: string;
+  event_var?: string;
+  feature_vars?: string[];
+  ml_model?: string;
+  test_size?: number;
+}) {
+  const { data } = await api.post<ClinicalAnalyzeResult>("/api/v1/platform/clinical-dataset/analyze", body);
+  return data;
+}

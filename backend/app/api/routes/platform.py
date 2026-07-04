@@ -16,6 +16,8 @@ from app.models.platform_schemas import (
     PathologyImagingGradeResult,
     PathologySaveRequest,
     PlatformChatAnalyzeResponse,
+    ClinicalDatasetAnalyzeBody,
+    ClinicalDatasetAnalyzeResponse,
     PlatformDiagnosisResult,
     PlatformImagingRow,
     PlatformKnowledgeGenerateBody,
@@ -373,6 +375,29 @@ def platform_knowledge_search(body: PlatformKnowledgeSearchBody) -> PlatformKnow
 @router.post("/knowledge/generate", response_model=PlatformKnowledgeGenerateResponse)
 def platform_knowledge_generate(body: PlatformKnowledgeGenerateBody) -> PlatformKnowledgeGenerateResponse:
     return generate_document(body)
+
+
+@router.post("/clinical-dataset/analyze", response_model=ClinicalDatasetAnalyzeResponse)
+def platform_clinical_dataset_analyze(body: ClinicalDatasetAnalyzeBody) -> ClinicalDatasetAnalyzeResponse:
+    from app.services.platform_clinical_dataset_stats import analyze_clinical_dataset
+
+    try:
+        result = analyze_clinical_dataset(body.model_dump())
+        rows = result.pop("rows", [])
+        summary = result.pop("summary", "")
+        return ClinicalDatasetAnalyzeResponse(
+            ok=True,
+            analysis=body.analysis,
+            summary=summary,
+            rows=rows if isinstance(rows, list) else [],
+            extra=result,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"分析失败：{e}") from e
 
 
 @router.get("/stats")

@@ -246,3 +246,38 @@ class PlatformKnowledgeGenerateResponse(BaseModel):
     doc_type: str
     title: str
     content: str
+
+
+class ClinicalVariableIn(BaseModel):
+    name: str
+    type: str = "text"
+    skipped: bool = False
+
+
+class ClinicalDatasetAnalyzeBody(BaseModel):
+    analysis: str
+    rows: list[dict[str, str]] = Field(default_factory=list)
+    variables: list[ClinicalVariableIn] = Field(default_factory=list)
+    selected_vars: list[str] = Field(default_factory=list)
+    split_var: str | None = None
+    group_a: str | None = None
+    group_b: str | None = None
+    dependent: str | None = None
+    independents: list[str] = Field(default_factory=list)
+    outcome_var: str | None = None
+    predictor: str | None = None
+    positive_class: str | None = None
+    time_var: str | None = None
+    event_var: str | None = None
+    feature_vars: list[str] = Field(default_factory=list)
+    ml_model: str = "random_forest"
+    test_size: float = 0.3
+
+
+class ClinicalDatasetAnalyzeResponse(BaseModel):
+    ok: bool = True
+    analysis: str
+    summary: str = ""
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    extra: dict[str, Any] = Field(default_factory=dict)
+    error: str = ""
