@@ -75,6 +75,22 @@ class Settings(BaseModel):
     pathology_imaging_api_timeout: float = Field(
         default_factory=lambda: float(_e("PATHOLOGY_IMAGING_API_TIMEOUT", "420"))
     )
+    pci_api_url: str = Field(
+        default_factory=lambda: _e("PCI_API_URL", "http://42.81.102.195:8509/genpci")
+    )
+    pci_api_timeout: float = Field(default_factory=lambda: float(_e("PCI_API_TIMEOUT", "300")))
+    pci_enabled: bool = Field(default_factory=lambda: _e_bool("PCI_ENABLED", True))
+    pci_dcm_path_template: str = Field(
+        default_factory=lambda: _e(
+            "PCI_DCM_PATH_TEMPLATE",
+            "/mc/opt/PMPPredict/temp_data/dcm_uploads/{session_id}",
+        )
+    )
+    pci_path_guess: bool = Field(default_factory=lambda: _e_bool("PCI_PATH_GUESS", True))
+    pci_poll_interval_seconds: float = Field(
+        default_factory=lambda: float(_e("PCI_POLL_INTERVAL_SECONDS", "10"))
+    )
+    pci_poll_max_attempts: int = Field(default_factory=lambda: int(_e("PCI_POLL_MAX_ATTEMPTS", "18")))
     cors_allow_origins: list[str] = Field(default_factory=_e_cors_origins)
 
 

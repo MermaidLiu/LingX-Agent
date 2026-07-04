@@ -462,6 +462,18 @@ def run_ml(
     )
     if model == "logistic":
         clf = LogisticRegression(max_iter=2000)
+    elif model in ("xgboost", "xgb"):
+        try:
+            from xgboost import XGBClassifier
+        except ImportError as e:
+            raise RuntimeError("xgboost 未安装，请运行 pip install xgboost") from e
+        clf = XGBClassifier(
+            n_estimators=200,
+            max_depth=4,
+            learning_rate=0.1,
+            random_state=42,
+            eval_metric="logloss",
+        )
     else:
         clf = RandomForestClassifier(n_estimators=200, random_state=42)
     pipe = Pipeline([("prep", preprocess), ("clf", clf)])

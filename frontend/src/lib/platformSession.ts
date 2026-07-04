@@ -32,6 +32,16 @@ export function slimPathologyImaging(
   result: PathologyImagingGradeResult | null | undefined,
 ): PathologyImagingGradeResult | null {
   if (!result) return null;
+  const raw = result.raw;
+  const slimRaw =
+    raw && (raw.pci || raw.pci_paths_tried || raw.sessionId || raw.selected_slice_filename)
+      ? {
+          pci: raw.pci,
+          pci_paths_tried: raw.pci_paths_tried,
+          sessionId: raw.sessionId,
+          selected_slice_filename: raw.selected_slice_filename,
+        }
+      : undefined;
   return {
     status: result.status,
     message: result.message,
@@ -44,6 +54,8 @@ export function slimPathologyImaging(
     annotation_dataset_id: result.annotation_dataset_id,
     annotation_slice_count: result.annotation_slice_count,
     annotation_slices_with_mask: result.annotation_slices_with_mask,
+    pci: result.pci ?? null,
+    raw: slimRaw,
   };
 }
 

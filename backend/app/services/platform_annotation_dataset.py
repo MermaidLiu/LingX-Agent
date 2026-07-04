@@ -17,6 +17,7 @@ import pydicom
 from PIL import Image
 
 from app.services.pathology_imaging_client import collect_dicom_files
+from app.services.pci_scoring_client import _pick_item_scalar, _to_int, _SLICE_REGION_KEYS, _SLICE_SC_KEYS
 
 ANNOTATION_ROOT = Path(__file__).resolve().parents[2] / "data" / "annotations"
 MASK_DIFF_THRESHOLD = 12
@@ -152,6 +153,11 @@ def save_annotation_dataset_from_api(
         if dicom_bytes:
             dicom_meta["matched"] = True
 
+        sc_raw = _pick_item_scalar(item, _SLICE_SC_KEYS)
+        region_raw = _pick_item_scalar(item, _SLICE_REGION_KEYS)
+        sc_val = _to_int(sc_raw) if sc_raw is not None else None
+        region_val = _to_int(region_raw) if region_raw is not None else None
+
         meta_path.write_text(json.dumps(dicom_meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
         has_overlay = lesion_pixels > 0
@@ -169,6 +175,8 @@ def save_annotation_dataset_from_api(
                 "mask_pixel_count": lesion_pixels,
                 "has_overlay": has_overlay,
                 "dicom_matched": bool(dicom_bytes),
+                "sc": sc_val,
+                "region": region_val,
             }
         )
 

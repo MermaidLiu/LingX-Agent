@@ -19,6 +19,7 @@ from app.models.platform_schemas import (
     ClinicalDatasetAnalyzeBody,
     ClinicalDatasetAnalyzeResponse,
     PlatformDiagnosisResult,
+    PciScoreResult,
     PlatformImagingRow,
     PlatformKnowledgeGenerateBody,
     PlatformKnowledgeGenerateResponse,
@@ -48,6 +49,7 @@ from app.services.platform_annotation_dataset import (
     load_annotation_manifest,
     save_annotation_dataset_from_api,
 )
+from app.services.pci_scoring_client import predict_pci_after_segmentation, predict_pci_score, try_parse_pci_from_manifest
 from app.services.platform_analysis import analyze_chat_uploads
 from app.services.platform_knowledge import generate_document, search_knowledge
 from app.services.platform_research import run_research_task
@@ -167,12 +169,17 @@ async def platform_pathology_grade(
     return_base64: bool = Form(True),
     save_to_db: bool = Form(False),
     save_annotation_dataset: bool = Form(True),
+    run_pci: bool = Form(True),
+    dcm_path: str = Form(""),
     db: Session = Depends(get_db),
 ) -> PathologyImagingGradeResult:
-    """Upload DICOM to classmate pathology grading service."""
+    """Upload DICOM → CT segmentation → optional PCI scoring."""
     file_items: list[tuple[str, bytes]] = []
+    upload_names: list[str] = []
     for uf in files:
-        file_items.append((uf.filename or "upload.dcm", await uf.read()))
+        name = uf.filename or "upload.dcm"
+        upload_names.append(name)
+        file_items.append((name, await uf.read()))
     raw = await predict_grade_from_imaging(file_items, return_base64=return_base64)
     api_payload = raw.pop("_api_payload", None)
     raw_payload = raw.get("raw") if isinstance(raw.get("raw"), dict) else {}
@@ -212,6 +219,44 @@ async def platform_pathology_grade(
             err = f"标注数据集保存失败：{exc}"
             raw["message"] = f"{raw.get('message', '')} · {err}".strip(" ·")
 
+    pci_result: dict[str, Any] | None = None
+    segmentation_done = raw.get("status") == "ok" and isinstance(api_payload, dict)
+    if run_pci and segmentation_done:
+        try:
+            pci_result = await predict_pci_after_segmentation(
+                api_payload,
+                exam_id="",
+                dcm_path_override=dcm_path.strip(),
+                upload_names=upload_names,
+                segmentation_complete=True,
+            )
+            if pci_result.get("status") == "ok":
+                raw["message"] = f"{raw.get('message', '')} · {pci_result.get('message', '')}".strip(" ·")
+                if pci_result.get("pci_score") is not None and not raw.get("grade_label"):
+                    raw["grade_label"] = f"PCI {pci_result['pci_score']}/36"
+            elif pci_result.get("status") == "pending":
+                raw["message"] = f"{raw.get('message', '')} · {pci_result.get('message', '')}".strip(" ·")
+            elif pci_result.get("status") not in ("skipped",):
+                raw["message"] = f"{raw.get('message', '')} · PCI：{pci_result.get('message', '')}".strip(" ·")
+            elif pci_result.get("status") == "skipped":
+                raw["message"] = f"{raw.get('message', '')} · {pci_result.get('message', '')}".strip(" ·")
+            if isinstance(raw_payload, dict) and pci_result:
+                raw_payload["pci"] = pci_result
+                raw_payload["pci_paths_tried"] = pci_result.get("paths_tried", [])
+                if api_payload.get("sessionId"):
+                    raw_payload["sessionId"] = api_payload.get("sessionId")
+        except Exception as exc:
+            raw["message"] = f"{raw.get('message', '')} · PCI 调用异常：{exc}".strip(" ·")
+            pci_result = {
+                "status": "error",
+                "message": str(exc),
+                "pci_score": None,
+                "regions": [],
+                "raw": {},
+            }
+            if isinstance(raw_payload, dict):
+                raw_payload["pci"] = pci_result
+
     return PathologyImagingGradeResult(
         status=str(raw.get("status", "")),
         message=str(raw.get("message", "")),
@@ -225,7 +270,58 @@ async def platform_pathology_grade(
         annotation_dataset_id=annotation_dataset_id,
         annotation_slice_count=annotation_slice_count,
         annotation_slices_with_mask=annotation_slices_with_mask,
+        pci=PciScoreResult.model_validate(pci_result) if pci_result else None,
     )
+
+
+@router.post("/pathology/pci", response_model=PciScoreResult)
+async def platform_pathology_pci(body: dict[str, Any]) -> PciScoreResult:
+    """Direct PCI scoring when DICOM directory path is already known on server."""
+    dcm_path = str(body.get("dcm_path") or body.get("dcmPath") or "").strip()
+    if not dcm_path:
+        raise HTTPException(status_code=400, detail="dcm_path 不能为空")
+    result = await predict_pci_score(dcm_path)
+    return PciScoreResult.model_validate(result)
+
+
+@router.post("/pathology/pci/retry", response_model=PciScoreResult)
+async def platform_pathology_pci_retry(body: dict[str, Any]) -> PciScoreResult:
+    """Retry PCI after segmentation when only session / dataset id is known."""
+    session_id = str(body.get("session_id") or body.get("sessionId") or "").strip()
+    exam_id = str(body.get("exam_id") or body.get("examId") or "").strip()
+    dcm_path = str(body.get("dcm_path") or body.get("dcmPath") or "").strip()
+    dataset_id = str(body.get("annotation_dataset_id") or body.get("dataset_id") or "").strip()
+    if dcm_path:
+        result = await predict_pci_after_segmentation(
+            {},
+            dcm_path_override=dcm_path,
+            segmentation_complete=True,
+        )
+        return PciScoreResult.model_validate(result)
+    if dataset_id:
+        try:
+            manifest = load_annotation_manifest(dataset_id)
+            session_id = session_id or str(manifest.get("session_id") or "")
+            exam_id = exam_id or str(manifest.get("exam_id") or "")
+            manifest_pci = try_parse_pci_from_manifest(manifest)
+            if manifest_pci:
+                return PciScoreResult.model_validate(manifest_pci)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if not session_id and not exam_id:
+        raise HTTPException(status_code=400, detail="需要 session_id、annotation_dataset_id 或 dcm_path")
+    ct_payload: dict[str, Any] = {}
+    if session_id:
+        ct_payload["sessionId"] = session_id
+    upload_names = body.get("upload_names") or body.get("uploadNames")
+    names = [str(x) for x in upload_names] if isinstance(upload_names, list) else None
+    result = await predict_pci_after_segmentation(
+        ct_payload,
+        exam_id=exam_id,
+        upload_names=names,
+        segmentation_complete=True,
+    )
+    return PciScoreResult.model_validate(result)
 
 
 @router.get("/pathology/annotation-datasets", response_model=list[AnnotationDatasetSummary])

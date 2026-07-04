@@ -93,6 +93,34 @@ class AnalysisIntentBody(BaseModel):
     notes: str = ""
 
 
+class PciRegionScore(BaseModel):
+    index: int | None = None
+    key: str = ""
+    label: str = ""
+    score: int | None = None
+
+
+class PciSliceScore(BaseModel):
+    index: int = 0
+    filename: str = ""
+    sc: int | None = None
+    region: int | None = None
+
+
+class PciScoreResult(BaseModel):
+    status: str = ""
+    message: str = ""
+    pci_score: int | None = None
+    is_positive: int | None = None
+    positive_rate: float | None = None
+    mesenteric_contracture: int | None = None
+    regions: list[PciRegionScore] = Field(default_factory=list)
+    slice_scores: list[PciSliceScore] = Field(default_factory=list)
+    conclusion: str = ""
+    dcm_path_used: str = ""
+    raw: dict[str, Any] = Field(default_factory=dict)
+
+
 class PathologyImagingGradeResult(BaseModel):
     status: str = ""
     message: str = ""
@@ -106,6 +134,7 @@ class PathologyImagingGradeResult(BaseModel):
     annotation_dataset_id: str = ""
     annotation_slice_count: int = 0
     annotation_slices_with_mask: int = 0
+    pci: PciScoreResult | None = None
 
 
 class AnnotationDatasetSummary(BaseModel):

@@ -12,6 +12,14 @@ const ML_STEPS = [
   { title: "模型配置", desc: "模型选择" },
 ];
 
+const ML_MODELS = [
+  { value: "random_forest", label: "随机森林" },
+  { value: "xgboost", label: "XGBoost" },
+  { value: "logistic", label: "Logistic 回归" },
+] as const;
+
+type MlModel = (typeof ML_MODELS)[number]["value"];
+
 type Props = {
   dataset: ClinicalDataset;
 };
@@ -23,7 +31,7 @@ export default function ClinicalDatasetMLTab({ dataset }: Props) {
     dataset.variables.filter((v) => v.type !== "file" && !v.skipped && v.type !== "date").slice(0, 4).map((v) => v.name),
   );
   const [outcomeVar, setOutcomeVar] = useState<string>();
-  const [mlModel, setMlModel] = useState<"random_forest" | "logistic">("random_forest");
+  const [mlModel, setMlModel] = useState<MlModel>("random_forest");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ClinicalAnalyzeResult | null>(null);
 
@@ -138,10 +146,13 @@ export default function ClinicalDatasetMLTab({ dataset }: Props) {
                 <Title level={5} style={{ marginTop: 0 }}>
                   模型选择
                 </Title>
-                <Radio.Group value={mlModel} onChange={(e) => setMlModel(e.target.value)}>
+                <Radio.Group value={mlModel} onChange={(e) => setMlModel(e.target.value as MlModel)}>
                   <Space direction="vertical">
-                    <Radio value="random_forest">随机森林</Radio>
-                    <Radio value="logistic">Logistic 回归</Radio>
+                    {ML_MODELS.map((m) => (
+                      <Radio key={m.value} value={m.value}>
+                        {m.label}
+                      </Radio>
+                    ))}
                   </Space>
                 </Radio.Group>
               </>
@@ -165,7 +176,7 @@ export default function ClinicalDatasetMLTab({ dataset }: Props) {
           ) : (
             <Space direction="vertical" style={{ marginTop: 12, width: "100%" }}>
               <Text>{result.summary}</Text>
-              <Text type="secondary">模型：{String(result.extra.model ?? mlModel)}</Text>
+              <Text type="secondary">模型：{ML_MODELS.find((m) => m.value === (result.extra.model ?? mlModel))?.label ?? String(result.extra.model ?? mlModel)}</Text>
               <Text type="secondary">特征：{(result.extra.features as string[])?.join("、") ?? selectedClinical.join("、")}</Text>
             </Space>
           )}

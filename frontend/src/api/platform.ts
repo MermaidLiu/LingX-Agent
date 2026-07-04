@@ -94,6 +94,34 @@ export type AnalysisIntent = {
   notes: string;
 };
 
+export type PciRegionScore = {
+  index?: number | null;
+  key: string;
+  label: string;
+  score: number | null;
+};
+
+export type PciSliceScore = {
+  index: number;
+  filename: string;
+  sc: number | null;
+  region?: number | null;
+};
+
+export type PciScoreResult = {
+  status: string;
+  message: string;
+  pci_score: number | null;
+  is_positive: number | null;
+  positive_rate: number | null;
+  mesenteric_contracture: number | null;
+  regions: PciRegionScore[];
+  slice_scores?: PciSliceScore[];
+  conclusion?: string;
+  dcm_path_used?: string;
+  raw?: Record<string, unknown>;
+};
+
 export type PathologyImagingGradeResult = {
   status: string;
   message: string;
@@ -107,6 +135,7 @@ export type PathologyImagingGradeResult = {
   annotation_dataset_id?: string;
   annotation_slice_count?: number;
   annotation_slices_with_mask?: number;
+  pci?: PciScoreResult | null;
 };
 
 export type AnnotationDatasetSummary = {
@@ -243,16 +272,37 @@ export async function platformRadiomicsRun(
 
 export async function platformPathologyGrade(
   files: File[],
-  opts?: { returnBase64?: boolean; saveToDb?: boolean; saveAnnotationDataset?: boolean },
+  opts?: { returnBase64?: boolean; saveToDb?: boolean; saveAnnotationDataset?: boolean; runPci?: boolean; dcmPath?: string },
 ) {
   const form = new FormData();
   files.forEach((f) => form.append("files", f));
   form.append("returnBase64", String(opts?.returnBase64 ?? true));
   form.append("save_to_db", String(opts?.saveToDb ?? false));
   form.append("save_annotation_dataset", String(opts?.saveAnnotationDataset ?? true));
+  form.append("run_pci", String(opts?.runPci ?? true));
+  if (opts?.dcmPath?.trim()) form.append("dcm_path", opts.dcmPath.trim());
   const { data } = await api.post<PathologyImagingGradeResult>("/api/v1/platform/pathology/grade", form, {
     headers: { "Content-Type": "multipart/form-data" },
     timeout: 480000,
+  });
+  return data;
+}
+
+export async function platformRetryPci(opts: {
+  sessionId?: string;
+  examId?: string;
+  annotationDatasetId?: string;
+  dcmPath?: string;
+  uploadNames?: string[];
+}) {
+  const { data } = await api.post<PciScoreResult>("/api/v1/platform/pathology/pci/retry", {
+    session_id: opts.sessionId?.trim() || undefined,
+    exam_id: opts.examId?.trim() || undefined,
+    annotation_dataset_id: opts.annotationDatasetId?.trim() || undefined,
+    dcm_path: opts.dcmPath?.trim() || undefined,
+    upload_names: opts.uploadNames?.length ? opts.uploadNames : undefined,
+  }, {
+    timeout: 180_000,
   });
   return data;
 }

@@ -473,20 +473,34 @@ def _summarize_api_payload(data: dict[str, Any]) -> dict[str, Any]:
                         for k, v in item.items()
                         if not isinstance(v, (dict, list)) and not _looks_like_base64_image(str(v))
                     },
+                    "sc": item.get("sc"),
                 }
             )
         summary["results_preview"] = preview
         if len(results) > 5:
             summary["results_truncated"] = len(results) - 5
-        if any(isinstance(x, dict) and _is_ct_module_slice_result(x) for x in results):
-            idx, item, _ = _pick_representative_ct_slice(results)
-            if item is not None:
-                summary["selected_slice"] = {
-                    "index": idx,
-                    "filename": item.get("filename"),
-                    "image_field": "resultBase64",
-                    "note": "pngBase64=原始切片预览，resultBase64=标注图",
-                }
+    for list_key in ("list", "pciList", "pci_list", "regionList"):
+        lst = data.get(list_key)
+        if isinstance(lst, list) and lst:
+            preview_items: list[dict[str, Any]] = []
+            for item in lst[:13]:
+                if isinstance(item, dict):
+                    preview_items.append({k: item.get(k) for k in ("e", "E", "sc", "rg", "region") if k in item})
+            summary[f"{list_key}_preview"] = preview_items
+            if len(lst) > 13:
+                summary[f"{list_key}_truncated"] = len(lst) - 13
+            break
+    if isinstance(results, list) and any(
+        isinstance(x, dict) and _is_ct_module_slice_result(x) for x in results
+    ):
+        idx, item, _ = _pick_representative_ct_slice(results)
+        if item is not None:
+            summary["selected_slice"] = {
+                "index": idx,
+                "filename": item.get("filename"),
+                "image_field": "resultBase64",
+                "note": "pngBase64=原始切片预览，resultBase64=标注图",
+            }
     for block_key in _CT_MODULE_SUMMARY_KEYS:
         block = data.get(block_key)
         if isinstance(block, dict):
@@ -594,7 +608,7 @@ def parse_grading_response(data: Any) -> dict[str, Any]:
             f"展示切片 {selected_slice_meta['selected_slice_filename']}（resultBase64 标注图）"
         )
     if not grade_label and image_b64:
-        msg_parts.append("接口未返回本例分级字段，已提供病灶勾画可视化")
+        msg_parts.append("CT 分割与勾画已完成（病例级病理分级字段需由分级/PCI 接口返回）")
 
     api_status = str(data.get("status") or "").lower()
     result_count = data.get("count")

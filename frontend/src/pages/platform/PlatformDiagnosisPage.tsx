@@ -1,9 +1,9 @@
 import { DatabaseOutlined, DownloadOutlined, ExperimentOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
-import { App, Alert, Button, Col, Collapse, Empty, Row, Space, Spin, Tag, Typography } from "antd";
+import { App, Alert, Button, Col, Collapse, Empty, Row, Space, Spin, Table, Tag, Typography } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { platformPathologyGrade, platformSavePathologyAnalysis, platformDownloadAnnotationDataset } from "../../api/platform";
-import type { PathologyImagingGradeResult } from "../../api/platform";
+import { platformPathologyGrade, platformRetryPci, platformSavePathologyAnalysis, platformDownloadAnnotationDataset } from "../../api/platform";
+import type { PathologyImagingGradeResult, PciScoreResult } from "../../api/platform";
 import {
   getPendingCaseFiles,
   getPendingCaseFileNames,
@@ -19,6 +19,7 @@ import {
   markSaved,
 } from "../../lib/platformSession";
 import { hasAnnotatedImage, imageSrcFromBase64 } from "../../lib/pathologyImage";
+import { buildPciConclusion, normalizePciRegions, pciRegionScoreTone, sumPciRegions } from "../../lib/pciRegions";
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -29,20 +30,260 @@ function gradeColor(label: string): "red" | "green" | "blue" | "muted" {
   return "blue";
 }
 
-function formatSingleCaseGrade(label: string): string {
+function getPci(result: PathologyImagingGradeResult): PciScoreResult | undefined {
+  return result.pci ?? (result.raw?.pci as PciScoreResult | undefined);
+}
+
+function formatPrimaryResult(result: PathologyImagingGradeResult): string {
+  const pci = getPci(result);
+  const regions = pci ? normalizePciRegions(pci) : [];
+  const total = pci?.pci_score ?? (regions.length ? sumPciRegions(regions) : null);
+  if (total != null) return `PCI ${total}/36`;
+  if (pci?.slice_scores?.length) {
+    const maxSc = Math.max(...pci.slice_scores.map((s) => s.sc ?? 0));
+    return maxSc > 0 ? `sc 最高 ${maxSc}` : "sc 已加载";
+  }
+  if (pci?.status === "error") return "PCI 评分失败";
+  if (pci?.status === "pending") return "分割完成 · PCI 待路径";
+  if (pci?.status === "skipped") return "分割完成 · 待 PCI";
+  if (pci?.status === "ok" && pci.pci_score == null) return "PCI 接口已响应";
+  const grade = result.grade_label?.trim();
+  if (grade && grade !== "—" && grade !== "待判定" && !grade.startsWith("PCI")) return grade;
+  if (hasAnnotatedImage(result.result_image_base64)) return "分割完成 · 待 PCI";
+  if (result.status === "error") return "分析失败";
+  return "待评分";
+}
+
+function formatSingleCaseGrade(label: string, result?: PathologyImagingGradeResult): string {
+  if (result) {
+    const primary = formatPrimaryResult(result);
+    if (primary !== "待评分") return primary;
+  }
   const t = label.trim();
-  if (!t || t === "—" || t === "待判定") return "接口未返回本例分级";
+  if (!t || t === "—" || t === "待判定") return "分割完成 · 待 PCI";
   return t;
+}
+
+function primaryGradeColor(result: PathologyImagingGradeResult): "red" | "green" | "blue" | "muted" {
+  const pci = getPci(result);
+  if (pci?.pci_score != null) {
+    if (pci.pci_score >= 20) return "red";
+    if (pci.pci_score <= 10) return "green";
+    return "blue";
+  }
+  return gradeColor(formatPrimaryResult(result));
+}
+
+function mergePciIntoResult(result: PathologyImagingGradeResult, pci: PciScoreResult): PathologyImagingGradeResult {
+  const raw = { ...(result.raw ?? {}), pci, pci_paths_tried: pci.raw?.paths_tried ?? result.raw?.pci_paths_tried };
+  const regions = normalizePciRegions(pci);
+  const total = pci.pci_score ?? sumPciRegions(regions);
+  const gradeLabel = total != null ? `PCI ${total}/36` : result.grade_label;
+  return { ...result, pci, grade_label: gradeLabel, raw };
+}
+
+async function fetchMissingPci(result: PathologyImagingGradeResult, fileNames: string[]): Promise<PathologyImagingGradeResult> {
+  const pci = getPci(result);
+  if (pci && pci.status !== "pending") return result;
+  if (result.status !== "ok") return result;
+  const sessionId = String(result.raw?.sessionId ?? "");
+  if (!result.annotation_dataset_id && !result.exam_id && !sessionId) return result;
+  try {
+    const retried = await platformRetryPci({
+      annotationDatasetId: result.annotation_dataset_id,
+      examId: result.exam_id,
+      sessionId: sessionId || undefined,
+      uploadNames: fileNames.length ? fileNames : undefined,
+    });
+    return mergePciIntoResult(result, retried);
+  } catch {
+    return result;
+  }
 }
 
 function splitMessageParts(message: string): string[] {
   return message
     .split(/[·•]/)
     .map((s) => s.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter(
+      (s) =>
+        !s.includes("接口未返回本例分级") &&
+        !s.includes("未返回病例级") &&
+        !s.includes("未返回本例分级字段"),
+    );
 }
 
-function PathologyResultPanel({ result }: { result: PathologyImagingGradeResult }) {
+function PciSliceScoresTable({ slices }: { slices: NonNullable<PciScoreResult["slice_scores"]> }) {
+  const positiveCount = slices.filter((s) => (s.sc ?? 0) > 0).length;
+  return (
+    <div className="pmp-pci-slice-table">
+      <div className="pmp-pci-report-title">
+        逐层 sc 评分（{slices.length} 层 · {positiveCount} 层 sc&gt;0）
+      </div>
+      <Table
+        size="small"
+        pagination={{ pageSize: 15, showSizeChanger: true, pageSizeOptions: ["15", "30", "50", "100"] }}
+        rowKey={(row) => `${row.index}-${row.filename}`}
+        dataSource={slices}
+        columns={[
+          { title: "#", dataIndex: "index", width: 64 },
+          { title: "DICOM 文件名", dataIndex: "filename", ellipsis: true },
+          {
+            title: "区域",
+            dataIndex: "region",
+            width: 72,
+            render: (v: number | null | undefined) => (v != null ? v : "—"),
+          },
+          {
+            title: "sc",
+            dataIndex: "sc",
+            width: 72,
+            sorter: (a, b) => (a.sc ?? -1) - (b.sc ?? -1),
+            defaultSortOrder: "descend" as const,
+            render: (v: number | null) => (
+              <span className={`pmp-pci-region-score pmp-pci-region-score--${pciRegionScoreTone(v)}`}>{v ?? "—"}</span>
+            ),
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
+function PciScorePanel({ pci, compact = false }: { pci: PciScoreResult; compact?: boolean }) {
+  const fromCtSlices = pci.raw?.source === "ct_slices" || (pci.slice_scores?.length ?? 0) > 0;
+  if (pci.status === "skipped") {
+    return (
+      <Alert type="warning" showIcon message="PCI 评分未执行" description={pci.message} />
+    );
+  }
+  if (pci.status === "pending") {
+    return (
+      <Alert
+        type="warning"
+        showIcon
+        message="分割已完成，PCI 等待服务端 DICOM 路径"
+        description={pci.message}
+      />
+    );
+  }
+  if (pci.status === "error" && !fromCtSlices) {
+    return (
+      <Alert type="error" showIcon message="PCI 评分失败" description={pci.message} />
+    );
+  }
+
+  const regions = normalizePciRegions(pci);
+  const totalScore = pci.pci_score ?? sumPciRegions(regions);
+  const partial = totalScore == null && pci.status === "ok" && !pci.slice_scores?.length;
+  const conclusion = buildPciConclusion(pci);
+
+  const summary = (
+    <>
+      {pci.status === "error" && fromCtSlices ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="genpci 路径不可用，已使用 CT 分割返回的 sc 字段"
+          description={pci.message}
+        />
+      ) : null}
+      <div className={`pmp-pci-summary${compact ? " pmp-pci-summary--compact" : ""}`}>
+        <div className="pmp-pci-total">
+          <span className="pmp-pci-total-value">{totalScore ?? "—"}</span>
+          <span className="pmp-pci-total-label">PCI 总分 / 36</span>
+        </div>
+        <Space wrap size={[8, 8]}>
+          {pci.is_positive != null ? (
+            <Tag color={pci.is_positive ? "red" : "green"}>{pci.is_positive ? "阳性" : "阴性"}</Tag>
+          ) : null}
+          {pci.positive_rate != null ? (
+            <Tag color="blue">
+              阳性概率{" "}
+              {pci.positive_rate > 1 ? pci.positive_rate.toFixed(1) : `${(pci.positive_rate * 100).toFixed(0)}%`}
+            </Tag>
+          ) : null}
+          {pci.mesenteric_contracture != null ? (
+            <Tag color={pci.mesenteric_contracture ? "orange" : "default"}>
+              肠系膜挛缩 {pci.mesenteric_contracture ? "(+)" : "(-)"}
+            </Tag>
+          ) : null}
+        </Space>
+      </div>
+
+      <div className="pmp-pci-report-section">
+        <div className="pmp-pci-report-title">13 区 PCI 评分</div>
+        <div className={`pmp-pci-regions${compact ? " pmp-pci-regions--compact" : ""}`}>
+          {regions.map((r) => (
+            <div key={r.key} className="pmp-pci-region-card">
+              <div className="pmp-pci-region-label">{r.label}</div>
+              <div className={`pmp-pci-region-score pmp-pci-region-score--${pciRegionScoreTone(r.score)}`}>
+                {r.score ?? "—"}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {pci.slice_scores?.length ? <PciSliceScoresTable slices={pci.slice_scores} /> : null}
+
+      {conclusion ? (
+        <div className="pmp-pci-conclusion">
+          <div className="pmp-pci-conclusion-title">结论</div>
+          <Paragraph style={{ marginBottom: 0, fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+            {conclusion}
+          </Paragraph>
+        </div>
+      ) : null}
+
+      {pci.dcm_path_used ? (
+        <Text type="secondary" style={{ fontSize: 11, display: "block", marginTop: 8 }}>
+          DICOM 路径：{pci.dcm_path_used}
+        </Text>
+      ) : null}
+      {(pci.raw?.paths_tried as string[] | undefined)?.length ? (
+        <Text type="secondary" style={{ fontSize: 11, display: "block", marginTop: 4 }}>
+          尝试路径：
+          {(pci.raw?.paths_tried as string[])
+            .slice(0, 3)
+            .map((p) => (p.length > 80 ? `${p.slice(0, 77)}…` : p))
+            .join(" → ")}
+        </Text>
+      ) : null}
+    </>
+  );
+
+  if (compact) {
+    return (
+      <div className="pmp-pci-inline">
+        {partial ? (
+          <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={pci.message} />
+        ) : null}
+        {summary}
+      </div>
+    );
+  }
+
+  return (
+    <div className="pmp-card pmp-pci-panel" style={{ marginTop: 0 }}>
+      <div className="pmp-panel-title">PCI 评分</div>
+      {partial ? (
+        <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={pci.message} />
+      ) : null}
+      {summary}
+    </div>
+  );
+}
+
+function PathologyResultPanel({
+  result,
+  pciFetching = false,
+}: {
+  result: PathologyImagingGradeResult;
+  pciFetching?: boolean;
+}) {
   const { message: msgApi } = App.useApp();
   const [downloading, setDownloading] = useState(false);
   const isError = result.status === "error";
@@ -52,6 +293,7 @@ function PathologyResultPanel({ result }: { result: PathologyImagingGradeResult 
     result.raw && "selected_slice_filename" in result.raw
       ? String((result.raw as Record<string, unknown>).selected_slice_filename)
       : "";
+  const pci = getPci(result);
 
   async function handleDownloadZip() {
     if (!result.annotation_dataset_id) return;
@@ -89,7 +331,7 @@ function PathologyResultPanel({ result }: { result: PathologyImagingGradeResult 
             <div className="pmp-card pmp-diagnosis-summary">
             <div className="pmp-panel-title">本例影像分析</div>
             <Paragraph type="secondary" style={{ fontSize: 12, marginTop: -4, marginBottom: 12 }}>
-              单病例模式：展示本例病灶勾画；病理分级需接口返回或人工确认，非队列高/低对比。
+              流程：DICOM 上传 → CT 分割勾画 → PCI 评分；病理分级需接口返回或人工确认。
             </Paragraph>
             {isError ? (
               <Alert type="error" message={result.message || "影像诊断分析接口调用失败"} showIcon />
@@ -98,13 +340,31 @@ function PathologyResultPanel({ result }: { result: PathologyImagingGradeResult 
             ) : (
               <>
                 <div className="pmp-diagnosis-grade-row">
-                  <span className={`pmp-diagnosis-grade pmp-diagnosis-grade--${gradeColor(result.grade_label || "")}`}>
-                    {formatSingleCaseGrade(result.grade_label || "")}
+                  <span className={`pmp-diagnosis-grade pmp-diagnosis-grade--${primaryGradeColor(result)}`}>
+                    {formatSingleCaseGrade(result.grade_label || "", result)}
                   </span>
                   {result.confidence != null ? (
                     <span className="pmp-diagnosis-confidence">置信度 {(result.confidence * 100).toFixed(0)}%</span>
                   ) : null}
                 </div>
+                {pciFetching ? (
+                  <div style={{ marginBottom: 12 }}>
+                    <Spin size="small" />{" "}
+                    <Text type="secondary" style={{ fontSize: 13, marginLeft: 8 }}>
+                      正在获取 PCI 评分…
+                    </Text>
+                  </div>
+                ) : pci ? (
+                  <PciScorePanel pci={pci} compact />
+                ) : hasAnnotatedImage(result.result_image_base64) ? (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 12 }}
+                    message="分割已完成"
+                    description="PCI（genpci）需在 CT 分割落盘并返回 dcm_path 后调用。请让同学在上传/分割接口响应中加入 dcm_path 字段。"
+                  />
+                ) : null}
                 {messageParts.length > 0 ? (
                   <ul className="pmp-diagnosis-bullets">
                     {messageParts.map((part) => (
@@ -218,6 +478,7 @@ function PathologyResultPanel({ result }: { result: PathologyImagingGradeResult 
 export default function PlatformDiagnosisPage() {
   const { message } = App.useApp();
   const [loading, setLoading] = useState(false);
+  const [pciFetching, setPciFetching] = useState(false);
   const [hydrating, setHydrating] = useState(true);
   const [result, setResult] = useState<PathologyImagingGradeResult | null>(null);
   const [fileNames, setFileNames] = useState<string[]>(loadPlatformSession().uploadedFileNames);
@@ -262,7 +523,19 @@ export default function PlatformDiagnosisPage() {
       }
       const hydrated = await hydratePathologyImagingResult(stored);
       if (!cancelled && hydrated) {
-        setResult(hydrated);
+        if (!getPci(hydrated) && hydrated.status === "ok") {
+          setPciFetching(true);
+          const withPci = await fetchMissingPci(hydrated);
+          if (!cancelled) {
+            setResult(withPci);
+            if (getPci(withPci)) {
+              setPathologyImagingResult(withPci, session.uploadedFileNames);
+            }
+          }
+          if (!cancelled) setPciFetching(false);
+        } else {
+          setResult(hydrated);
+        }
         setFileNames(session.uploadedFileNames);
       }
       if (!cancelled) setHydrating(false);
@@ -286,17 +559,40 @@ export default function PlatformDiagnosisPage() {
     setLoading(true);
     try {
       const res = await platformPathologyGrade(files);
-      setResult(res);
+      let finalRes = res;
       const names = getPendingCaseFileNames();
+      if (res.status === "ok" && (!getPci(res) || getPci(res)?.status === "pending")) {
+        setPciFetching(true);
+        try {
+          finalRes = await fetchMissingPci(res, names);
+        } finally {
+          setPciFetching(false);
+        }
+      }
+      setResult(finalRes);
       setFileNames(names);
-      setPathologyImagingResult(res, names);
-      setSavedToDb(Boolean(res.saved));
-      if (res.status === "error") {
-        message.error(res.message || "影像诊断分析接口调用失败");
-      } else if (res.status === "skipped") {
-        message.warning(res.message);
+      setPathologyImagingResult(finalRes, names);
+      setSavedToDb(Boolean(finalRes.saved));
+      if (finalRes.status === "error") {
+        message.error(finalRes.message || "影像诊断分析接口调用失败");
+      } else if (finalRes.status === "skipped") {
+        message.warning(finalRes.message);
       } else {
-        message.success("影像诊断分析完成，请确认加入病理库与影像库");
+        const pci = getPci(finalRes);
+        const pciTotal =
+          pci?.pci_score ??
+          (pci ? sumPciRegions(normalizePciRegions(pci)) : null);
+        if (pciTotal != null) {
+          message.success(`分割完成 · PCI ${pciTotal}/36`);
+        } else if (pci?.status === "pending") {
+          message.warning("分割完成；PCI 需 CT 返回 dcm_path 后再调 genpci");
+        } else if (pci?.status === "error") {
+          message.warning(`分割完成，但 PCI 失败：${pci.message}`);
+        } else if (pci?.status === "skipped") {
+          message.warning(`分割完成，但 PCI 未执行：${pci.message}`);
+        } else {
+          message.warning("分割完成，但 PCI 接口未返回 pciScore 总分");
+        }
       }
     } catch (e) {
       const errMsg = e instanceof Error ? e.message : "分析失败，请检查后端服务是否启动";
@@ -410,7 +706,9 @@ export default function PlatformDiagnosisPage() {
         </Empty>
       ) : null}
 
-      {!loading && !hydrating && result ? <PathologyResultPanel result={result} /> : null}
+      {!loading && !hydrating && result ? (
+        <PathologyResultPanel result={result} pciFetching={pciFetching} />
+      ) : null}
     </div>
   );
 }

@@ -1199,3 +1199,141 @@ body {
   background: #1677ff;
   transform: translate(-50%, 50%);
 }
+
+.pmp-pci-panel {
+  padding: 16px 20px;
+}
+
+.pmp-pci-inline {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f0f7ff 0%, #f8fafc 100%);
+  border: 1px solid #dbeafe;
+}
+
+.pmp-pci-summary--compact {
+  margin-bottom: 10px;
+}
+
+.pmp-pci-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.pmp-pci-total {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 88px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #eff6ff 0%, #f0fdf4 100%);
+  border: 1px solid #dbeafe;
+}
+
+.pmp-pci-total-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: #1e3a5f;
+  line-height: 1.1;
+}
+
+.pmp-pci-total-label {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+.pmp-pci-regions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pmp-pci-regions--compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.pmp-pci-report-section {
+  margin-bottom: 14px;
+}
+
+.pmp-pci-report-title,
+.pmp-pci-conclusion-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 10px;
+}
+
+.pmp-pci-region-card,
+.pmp-pci-region {
+  padding: 10px 8px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  text-align: center;
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.pmp-pci-regions--compact .pmp-pci-region-card {
+  min-height: 64px;
+  padding: 8px 6px;
+}
+
+.pmp-pci-region-label {
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 6px;
+  line-height: 1.35;
+}
+
+.pmp-pci-region-score {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pmp-pci-region-score--zero {
+  color: #389e0d;
+}
+.pmp-pci-region-score--low {
+  color: #d48806;
+}
+.pmp-pci-region-score--mid {
+  color: #fa8c16;
+}
+.pmp-pci-region-score--high {
+  color: #cf1322;
+}
+.pmp-pci-region-score--empty {
+  color: #94a3b8;
+}
+
+.pmp-pci-conclusion {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+}
+
+.pmp-pci-slice-table {
+  margin-bottom: 14px;
+}
+
+.pmp-pci-slice-table .ant-table {
+  font-size: 12px;
+}
+
+.pmp-pci-regions--compact .pmp-pci-region-score {
+  font-size: 18px;
+}
