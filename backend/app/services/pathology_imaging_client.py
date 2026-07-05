@@ -111,6 +111,33 @@ _TOP_GRADE_KEYS = (
     "分级",
 )
 _CT_MODULE_SUMMARY_KEYS = ("summary", "study", "aggregate", "overall", "study_result", "studyResult")
+_CT_RESULTS_KEYS = ("results", "ctResults", "ct_results")
+_CT_COUNT_KEYS = ("count", "ctCount", "ct_count")
+
+
+def normalize_ct_api_payload(data: Any) -> dict[str, Any]:
+    """Unify legacy (results/count) and merged CT+PCI API (ctResults/ctCount/pci)."""
+    if not isinstance(data, dict):
+        return {}
+    out = dict(data)
+    if not isinstance(out.get("results"), list):
+        for key in _CT_RESULTS_KEYS[1:]:
+            block = out.get(key)
+            if isinstance(block, list):
+                out["results"] = block
+                break
+    if out.get("count") is None:
+        for key in _CT_COUNT_KEYS[1:]:
+            if out.get(key) is not None:
+                out["count"] = out[key]
+                break
+    return out
+
+
+def get_ct_results(data: dict[str, Any]) -> list[Any]:
+    normalized = normalize_ct_api_payload(data)
+    results = normalized.get("results")
+    return results if isinstance(results, list) else []
 
 
 def is_imaging_grade_task(task_id: str) -> bool:
@@ -337,7 +364,7 @@ def _extract_result_image_b64(data: dict[str, Any]) -> str:
             found = _extract_base64_from_value(block, allow_raw_fallback=False)
             if found:
                 return found
-    results = data.get("results")
+    results = get_ct_results(data)
     if isinstance(results, list) and results:
         if any(isinstance(x, dict) and _is_ct_module_slice_result(x) for x in results):
             _, _, image = _pick_representative_ct_slice(results)
@@ -449,9 +476,22 @@ def _summarize_api_payload(data: dict[str, Any]) -> dict[str, Any]:
         "status": data.get("status"),
         "message": data.get("message") or data.get("msg"),
         "sessionId": data.get("sessionId") or data.get("session_id"),
-        "count": data.get("count"),
+        "count": data.get("count") or data.get("ctCount"),
+        "ctCount": data.get("ctCount"),
     }
-    results = data.get("results")
+    pci_block = data.get("pci")
+    if isinstance(pci_block, dict):
+        summary["pci_preview"] = {
+            "pciScore": pci_block.get("pciScore") or pci_block.get("pci_score"),
+            "isPositive": pci_block.get("isPositive") or pci_block.get("is_positive"),
+            "positiveRate": pci_block.get("positiveRate") or pci_block.get("positive_rate"),
+            "conclusion": (
+                str(pci_block.get("conclusion") or "")[:200]
+                if pci_block.get("conclusion")
+                else None
+            ),
+        }
+    results = get_ct_results(data)
     if isinstance(results, list):
         preview: list[dict[str, Any]] = []
         for idx, item in enumerate(results[:5]):
@@ -557,7 +597,7 @@ def parse_grading_response(data: Any) -> dict[str, Any]:
     grade_raw = top_grade
     conf_raw = top_conf
 
-    results = data.get("results")
+    results = get_ct_results(data)
     if isinstance(results, list) and results:
         slice_grade, slice_conf, slice_image = _pick_best_from_results(results)
         grade_raw = grade_raw or slice_grade
@@ -594,24 +634,25 @@ def parse_grading_response(data: Any) -> dict[str, Any]:
     confidence = _normalize_confidence(conf_raw)
 
     msg_parts: list[str] = []
-    if grade_label:
+    pci_block = data.get("pci")
+    pci_conclusion = ""
+    if isinstance(pci_block, dict):
+        raw_conc = pci_block.get("conclusion")
+        if isinstance(raw_conc, str) and raw_conc.strip():
+            pci_conclusion = raw_conc.strip()
+
+    if pci_conclusion:
+        msg_parts.append(pci_conclusion)
+    elif grade_label:
         msg_parts.append(f"影像诊断分析：{grade_label}")
-    if confidence is not None:
+    if confidence is not None and not pci_conclusion:
         msg_parts.append(f"置信度 {(confidence * 100):.0f}%")
     api_msg = data.get("message") or data.get("msg") or data.get("detail")
-    if api_msg and str(api_msg) not in msg_parts:
+    if api_msg and not pci_conclusion and str(api_msg) not in msg_parts:
         msg_parts.append(str(api_msg))
-    if image_b64 and not any("标注" in p or "可视化" in p for p in msg_parts):
-        msg_parts.append("已返回标注可视化图像")
-    if selected_slice_meta.get("selected_slice_filename"):
-        msg_parts.append(
-            f"展示切片 {selected_slice_meta['selected_slice_filename']}（resultBase64 标注图）"
-        )
-    if not grade_label and image_b64:
-        msg_parts.append("CT 分割与勾画已完成（病例级病理分级字段需由分级/PCI 接口返回）")
 
     api_status = str(data.get("status") or "").lower()
-    result_count = data.get("count")
+    result_count = data.get("count") if data.get("count") is not None else data.get("ctCount")
     if isinstance(results, list) and not results and result_count not in (None, 0):
         msg_parts.append(f"接口声明 count={result_count} 但 results 为空，请让同学确认 CT 模块返回结构")
 
@@ -640,10 +681,102 @@ def parse_grading_response(data: Any) -> dict[str, Any]:
     }
 
 
+_PCI_REPORT_IMAGE_KEYS = (
+    "pciReportImage",
+    "pci_report_image",
+    "reportImageBase64",
+    "report_image_base64",
+    "pciImageBase64",
+    "pci_image_base64",
+    "reportImage",
+    "report_image",
+)
+
+
+def _extract_pci_report_image(pci_block: dict[str, Any]) -> str:
+    for key in _PCI_REPORT_IMAGE_KEYS:
+        val = pci_block.get(key)
+        if isinstance(val, str) and _looks_like_base64_image(val):
+            return _normalize_base64_image(val)
+    return _extract_base64_from_value(pci_block, allow_raw_fallback=False)
+
+
+def _grade_from_pci_payload(payload: dict[str, Any], pci_block: dict[str, Any]) -> str:
+    for source in (pci_block, payload):
+        for key in (
+            "pathologyGrade",
+            "pathology_grade",
+            "gradeLabel",
+            "grade_label",
+            "pathologyGradeLabel",
+        ):
+            val = source.get(key)
+            if val is not None and str(val).strip():
+                normalized = _normalize_grade_text(val)
+                return normalized or str(val).strip()
+    return ""
+
+
+def enrich_with_merged_ct_pci(parsed: dict[str, Any], payload: dict[str, Any], *, run_pci: bool) -> dict[str, Any]:
+    """CT 合并接口：一次响应内同时含 ctResults 分割图与 pci 报告。"""
+    if not run_pci or not isinstance(payload, dict):
+        return parsed
+
+    from app.services.pci_scoring_client import try_parse_embedded_pci
+
+    embedded = try_parse_embedded_pci(payload)
+    if not embedded:
+        return parsed
+
+    parsed["pci"] = embedded
+    raw = dict(parsed.get("raw") or {})
+    raw["pci"] = embedded
+    raw["pci_merged_api"] = True
+    if payload.get("sessionId"):
+        raw["sessionId"] = payload.get("sessionId")
+    parsed["raw"] = raw
+
+    pci_block = payload.get("pci")
+    if isinstance(pci_block, dict):
+        if not parsed.get("result_image_base64"):
+            seg_img = _extract_pci_report_image(pci_block)
+            if seg_img:
+                parsed["result_image_base64"] = seg_img
+        report_img = ""
+        for key in _PCI_REPORT_IMAGE_KEYS:
+            val = pci_block.get(key)
+            if isinstance(val, str) and _looks_like_base64_image(val):
+                report_img = _normalize_base64_image(val)
+                break
+        if report_img:
+            embedded["report_image_base64"] = report_img
+            raw["pci"] = embedded
+            parsed["raw"] = raw
+
+    pci_grade = _grade_from_pci_payload(payload, pci_block if isinstance(pci_block, dict) else {})
+    if pci_grade and not parsed.get("grade_label"):
+        parsed["grade_label"] = pci_grade
+
+    pci_score = embedded.get("pci_score")
+    if pci_score is not None and not parsed.get("grade_label"):
+        parsed["grade_label"] = f"PCI {pci_score}/36"
+
+    msg = str(parsed.get("message") or "")
+    conclusion = str(embedded.get("conclusion") or "").strip()
+    if conclusion:
+        msg = conclusion
+    elif pci_score is not None and not parsed.get("grade_label"):
+        msg = f"PCI {pci_score}/36"
+    parsed["message"] = msg
+
+    return parsed
+
+
 async def predict_grade_from_imaging(
     files: list[tuple[str, bytes]] | None = None,
     *,
     return_base64: bool = True,
+    run_pci: bool = True,
 ) -> dict[str, Any]:
     """Upload DICOM files to external pathology grading service."""
     dicom_files = collect_dicom_files(files)
@@ -669,17 +802,20 @@ async def predict_grade_from_imaging(
             fname = f"{fname}.dcm"
         multipart_files.append(("files", (fname, content, "application/dicom")))
 
-    form_data = {"returnBase64": "true" if return_base64 else "false"}
+    form_data = {
+        "returnBase64": "true" if return_base64 else "false",
+        "runPci": "true" if run_pci else "false",
+    }
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(url, files=multipart_files, data=form_data)
             resp.raise_for_status()
-            payload = resp.json()
+            payload = normalize_ct_api_payload(resp.json())
     except httpx.TimeoutException:
         return {
             "status": "error",
-            "message": f"影像诊断分析接口超时（连接 30s / 读取 {int(read_timeout)}s），分析通常需约 5 分钟，请稍后重试或增大 PATHOLOGY_IMAGING_API_TIMEOUT：{url}",
+            "message": f"影像诊断分析接口超时（连接 30s / 读取 {int(read_timeout)}s）。CT 合并接口同学侧约 5 分钟，若本地总耗时更长，多为浏览器→本地上传 DICOM 耗时：{url}",
             "grade_label": "",
             "confidence": None,
             "result_image_base64": "",
@@ -709,6 +845,7 @@ async def predict_grade_from_imaging(
         }
 
     parsed = parse_grading_response(payload)
+    parsed = enrich_with_merged_ct_pci(parsed, payload, run_pci=run_pci)
     parsed["dicom_count"] = len(dicom_files)
     parsed["_api_payload"] = payload
     if parsed["status"] == "ok" and not parsed.get("message"):

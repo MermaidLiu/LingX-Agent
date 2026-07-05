@@ -145,6 +145,53 @@ def build_diagnosis(record: PetCtInterviewRecord, intent_question: str = "") -> 
     )
 
 
+def _extract_pci_score(text: str) -> int | None:
+    m = re.search(r"PCI\s*总分[：:\s]*(\d+)", text, re.I)
+    if m:
+        return int(m.group(1))
+    m = re.search(r"PCI\s*(\d+)\s*/\s*36", text, re.I)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _lab_field(lab: dict[str, Any], *keys: str, default: str = "—") -> str:
+    for key in keys:
+        val = lab.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    return default
+
+
+def _lab_clinical_summary(lab: dict[str, Any]) -> str:
+    parts: list[str] = []
+    tnm = lab.get("TNM分期")
+    if tnm is not None and str(tnm).strip():
+        parts.append(f"TNM {tnm}")
+    for key in ("CEA", "CA125", "CA19-9", "CA199"):
+        if key == "CA199" and lab.get("CA19-9"):
+            continue
+        val = lab.get(key)
+        if val is not None and str(val).strip():
+            label = "CA19-9" if key == "CA199" else key
+            parts.append(f"{label} {val}")
+    return " · ".join(parts) if parts else ""
+
+
+def _normalize_grade_label(grade: str, pci_score: int | None) -> str:
+    g = (grade or "").strip()
+    if g in ("高级别", "低级别", "未确定"):
+        return g
+    if g.upper().startswith("PCI") or pci_score is not None:
+        if pci_score is not None:
+            if pci_score >= 20:
+                return "高级别"
+            if pci_score <= 10:
+                return "低级别"
+        return "未确定"
+    return g or "—"
+
+
 def record_to_patient_row(record: PetCtInterviewRecord, row_id: str | None = None) -> PlatformPatientRow:
     p = record.patient_base_info
     iv = record.interview_info
@@ -162,9 +209,44 @@ def record_to_patient_row(record: PetCtInterviewRecord, row_id: str | None = Non
     if not enrolled:
         enrolled = datetime.now().strftime("%Y-%m-%d")
 
-    grade = rx.pathology_grade or "—"
-    gene = "—"
+    grade_raw = rx.pathology_grade or "—"
+    narrative = rx.pet_ct_report_narrative or rx.imaging_report_text or ""
+    pci_score = _extract_pci_score(narrative) or _extract_pci_score(grade_raw)
+    grade = _normalize_grade_label(grade_raw, pci_score)
+
     lab = rx.lab_snapshot or {}
+    lab_txt = _lab_clinical_summary(lab)
+    clinical_parts = [iv.brief_medical_history[:120] if iv.brief_medical_history else ""]
+    if lab_txt:
+        clinical_parts.append(lab_txt)
+    clinical_summary = " · ".join(p for p in clinical_parts if p) or "—"
+
+    path_parts: list[str] = []
+    if grade and grade != "—":
+        path_parts.append(grade)
+    if rx.pathology_confidence is not None:
+        path_parts.append(f"置信度 {rx.pathology_confidence * 100:.0f}%")
+    if rx.pathology_evidence:
+        path_parts.append(rx.pathology_evidence[0][:60])
+    pathology_summary = " · ".join(path_parts) if path_parts else "—"
+
+    dicom_count = 0
+    for u in rx.document_uploads or []:
+        if isinstance(u, dict) and u.get("kind") == "dicom":
+            dicom_count += int(u.get("dicom_count") or u.get("count") or 1)
+    modality = "CT"
+    if re.search(r"PET|FDG", (p.exam_item or "") + narrative, re.I):
+        modality = "PET-CT"
+    img_parts: list[str] = [modality]
+    if dicom_count:
+        img_parts.append(f"{dicom_count} 层 DICOM")
+    if pci_score is not None:
+        img_parts.append(f"PCI {pci_score}/36")
+    if _has_pathology_imaging_artifact(rx):
+        img_parts.append("含分割图")
+    imaging_summary = " · ".join(img_parts)
+
+    gene = "—"
     for key in ("EGFR", "egfr", "KRAS", "kras", "gene", "分子"):
         if key in lab and lab[key]:
             gene = str(lab[key])
@@ -189,7 +271,23 @@ def record_to_patient_row(record: PetCtInterviewRecord, row_id: str | None = Non
         admissionId=p.admission_id or p.outpatient_id or "—",
         admissionTime=enrolled,
         gradeLabel=grade if grade else "—",
-        followUpStatus="随访中" if rx.prior_exam_ids else "—",
+        followUpStatus=(
+            "随访中"
+            if rx.prior_exam_ids or "随访队列" in (rx.pet_ct_phenotype_tags or [])
+            else "—"
+        ),
+        examId=p.exam_id or "",
+        clinicalSummary=clinical_summary,
+        pathologySummary=pathology_summary,
+        imagingSummary=imaging_summary,
+        pciScore=pci_score,
+        hasAnnotatedImage=_has_pathology_imaging_artifact(rx),
+        modality=modality,
+        dicomCount=dicom_count,
+        treatmentMethod=_lab_field(lab, "治疗方式", "treatmentMethod"),
+        surgeryNumber=_lab_field(lab, "第几次手术", "surgeryNumber"),
+        ivChemotherapy=_lab_field(lab, "是否静脉化疗", "ivChemotherapy"),
+        ccScore=_lab_field(lab, "CC评分", "CC", "ccScore"),
     )
 
 

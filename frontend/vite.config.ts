@@ -10,8 +10,8 @@ function createProxyTarget(mode: string) {
   const env = loadEnv(mode, process.cwd(), "");
   const target = env.VITE_PROXY_TARGET || "http://127.0.0.1:8000";
   const agent = new http.Agent({ family: 4 });
-  // 影像诊断分析约 5 分钟，代理超时需大于后端等待时间
-  const longTimeout = 600_000;
+  // 影像诊断 + PCI 合并接口，501 层约 8–12 分钟
+  const longTimeout = 900_000;
   return {
     target,
     changeOrigin: true,

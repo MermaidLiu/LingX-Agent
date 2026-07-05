@@ -1337,3 +1337,34 @@ body {
 .pmp-pci-regions--compact .pmp-pci-region-score {
   font-size: 18px;
 }
+
+.pmp-grade-col-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  line-height: 1.2;
+}
+
+.pmp-grade-col-select {
+  width: 100%;
+  min-width: 88px;
+}
+
+.pmp-grade-col-select .ant-select-selector {
+  font-size: 12px !important;
+  padding: 0 6px !important;
+}
+
+.pmp-care-report {
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  background: #fafafa;
+  padding: 12px;
+  border-radius: 8px;
+}

@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.services.pathology_imaging_client import normalize_ct_api_payload
 
 DEFAULT_PCI_API_URL = "http://42.81.102.195:8509/genpci"
 DEFAULT_DCM_UPLOAD_ROOT = "/mc/opt/PMPPredict/temp_data/dcm_uploads"
@@ -519,14 +520,35 @@ def try_parse_embedded_pci(payload: dict[str, Any] | None) -> dict[str, Any] | N
     """If CT module already returned PCI fields, parse them directly."""
     if not isinstance(payload, dict):
         return None
-    if any(k in payload for k in _PCI_EMBEDDED_KEYS) or any(k.lower().startswith("pci") for k in payload):
+
+    pci_block = payload.get("pci")
+    if isinstance(pci_block, dict):
+        parsed = parse_pci_response(pci_block)
+        if parsed.get("status") == "ok" and (
+            parsed.get("pci_score") is not None
+            or any(r.get("score") is not None for r in parsed.get("regions") or [])
+            or parsed.get("is_positive") is not None
+            or parsed.get("conclusion")
+        ):
+            parsed["source"] = "ct_merged_pci"
+            parsed["raw"] = {**(parsed.get("raw") or {}), "ct_merged": True}
+            return parsed
+
+    flat_pci_keys = any(k in payload for k in _PCI_EMBEDDED_KEYS) or any(
+        str(k).lower().startswith("pci") and str(k).lower() != "pci" and not isinstance(payload.get(k), dict)
+        for k in payload
+    )
+    if flat_pci_keys:
         parsed = parse_pci_response(payload)
         if parsed.get("status") == "ok" and (
-            parsed.get("pci_score") is not None or parsed.get("regions") or parsed.get("is_positive") is not None
+            parsed.get("pci_score") is not None
+            or any(r.get("score") is not None for r in parsed.get("regions") or [])
+            or parsed.get("is_positive") is not None
         ):
             parsed["source"] = "ct_payload"
             return parsed
-    for block_key in ("pci", "pci_result", "pmp", "score", "result", "data"):
+
+    for block_key in ("pci_result", "pmp", "score", "result", "data"):
         block = payload.get(block_key)
         if isinstance(block, dict):
             nested = try_parse_embedded_pci(block)
@@ -651,6 +673,20 @@ def parse_pci_response(data: Any) -> dict[str, Any]:
         mesenteric=mesenteric,
     )
 
+    report_image = ""
+    for key in (
+        "pciReportImage",
+        "pci_report_image",
+        "reportImageBase64",
+        "report_image_base64",
+        "pciImageBase64",
+        "pci_image_base64",
+    ):
+        val = data.get(key)
+        if isinstance(val, str) and len(val.strip()) > 80:
+            report_image = val.strip()
+            break
+
     msg_parts: list[str] = []
     if pci_score is not None:
         msg_parts.append(f"PCI 总分 {pci_score}/36")
@@ -695,6 +731,7 @@ def parse_pci_response(data: Any) -> dict[str, Any]:
         "mesenteric_contracture": mesenteric,
         "regions": regions,
         "conclusion": conclusion,
+        "report_image_base64": report_image,
         "dcm_path_used": str(data.get("_dcm_path_used") or ""),
         "raw": {k: v for k, v in data.items() if not str(k).startswith("_")},
     }
@@ -870,9 +907,10 @@ async def predict_pci_after_segmentation(
     dcm_path_override: str = "",
     upload_names: list[str] | None = None,
     segmentation_complete: bool = False,
+    ct_run_pci: bool = False,
 ) -> dict[str, Any]:
     """Run PCI scoring after CT module segmentation completes."""
-    payload = ct_payload or {}
+    payload = normalize_ct_api_payload(ct_payload or {})
     if not settings.pci_enabled:
         return {
             "status": "skipped",
@@ -883,31 +921,56 @@ async def predict_pci_after_segmentation(
             "paths_tried": [],
         }
 
-    # 1) 13 区 PCI：list[{e, sc}, ...]（CT / genpci 常见格式）
+    # 1) Merged CT API: top-level pci { pciScore, pci0Central, ... }
+    embedded = try_parse_embedded_pci(payload)
+    if embedded and (
+        embedded.get("pci_score") is not None
+        or any(r.get("score") is not None for r in embedded.get("regions") or [])
+        or embedded.get("is_positive") is not None
+        or embedded.get("conclusion")
+    ):
+        embedded["source"] = embedded.get("source") or "ct_payload"
+        return embedded
+
+    # 2) 13 区 PCI：list[{e, sc}, ...]
     region_list_pci = try_parse_pci_from_region_list(payload)
     if region_list_pci:
         return region_list_pci
 
-    # 2) Per-slice sc from CT results
+    # 3) Per-slice sc from CT results
     ct_slices = try_parse_pci_from_ct_slices(payload)
     if ct_slices and ct_slices.get("slice_scores"):
         return ct_slices
 
-    # 2) Case-level PCI fields embedded in CT JSON
-    embedded = try_parse_embedded_pci(payload)
-    if embedded and embedded.get("pci_score") is not None:
-        return embedded
-
     session_hint = str(payload.get("sessionId") or payload.get("session_id") or "").strip()
+    pending_status = "pending" if segmentation_complete else "skipped"
+    pending_prefix = "分割与勾画已完成。" if segmentation_complete else ""
+
+    if ct_run_pci:
+        return {
+            "status": pending_status,
+            "message": (
+                f"{pending_prefix}CT 合并接口已请求 runPci，但响应中未包含 pci 评分字段。"
+                "请确认 CT 服务已更新并在响应中返回 pci 对象（pciScore、pci0Central 等）。"
+            ),
+            "pci_score": None,
+            "regions": [],
+            "slice_scores": [],
+            "raw": {
+                "sessionId": session_hint,
+                "segmentation_complete": segmentation_complete,
+                "ct_run_pci": True,
+                "pci_keys_in_response": sorted(str(k) for k in payload.keys()),
+            },
+            "paths_tried": [],
+        }
+
     explicit_paths = build_explicit_dcm_paths(payload, override=dcm_path_override.strip())
     candidates = list(explicit_paths)
     if settings.pci_path_guess:
         for path in build_guessed_dcm_paths(payload, exam_id=exam_id, upload_names=upload_names):
             if path not in candidates:
                 candidates.append(path)
-
-    pending_status = "pending" if segmentation_complete else "skipped"
-    pending_prefix = "分割与勾画已完成。" if segmentation_complete else ""
 
     if not candidates:
         return {

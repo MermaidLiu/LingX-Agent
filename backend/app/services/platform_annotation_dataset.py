@@ -16,7 +16,7 @@ import numpy as np
 import pydicom
 from PIL import Image
 
-from app.services.pathology_imaging_client import collect_dicom_files
+from app.services.pathology_imaging_client import collect_dicom_files, normalize_ct_api_payload
 from app.services.pci_scoring_client import _pick_item_scalar, _to_int, _SLICE_REGION_KEYS, _SLICE_SC_KEYS
 
 ANNOTATION_ROOT = Path(__file__).resolve().parents[2] / "data" / "annotations"
@@ -109,6 +109,7 @@ def save_annotation_dataset_from_api(
     session_id: str = "",
 ) -> dict[str, Any]:
     """Save all CT module result slices to disk with DICOM metadata and binary masks."""
+    api_payload = normalize_ct_api_payload(api_payload)
     results = api_payload.get("results")
     if not isinstance(results, list) or not results:
         raise ValueError("接口 results 为空，无法导出标注数据集")

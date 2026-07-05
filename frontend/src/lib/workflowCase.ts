@@ -65,7 +65,27 @@ export type ClinicalFieldInput = {
   gender?: string;
   department?: string;
   medicalRecordId?: string;
+  patientName?: string;
+  tnmStage?: string;
+  treatmentMethod?: string;
+  surgeryNumber?: string;
+  ivChemotherapy?: string;
+  ccScore?: string;
+  /** 检验指标 → research_extensions.lab_snapshot */
+  labSnapshot?: Record<string, string>;
 };
+
+function mergeLabSnapshot(
+  base: PetCtInterviewRecord,
+  labSnapshot?: Record<string, string>,
+): Record<string, string> {
+  const out = { ...(base.research_extensions?.lab_snapshot || {}) };
+  if (!labSnapshot) return out;
+  for (const [k, v] of Object.entries(labSnapshot)) {
+    if (v != null && String(v).trim()) out[k] = String(v).trim();
+  }
+  return out;
+}
 
 /** 保存第 1 步临床数据 / 病历输入字段 */
 export function saveClinicalFields(fields: ClinicalFieldInput): PetCtInterviewRecord {
@@ -74,6 +94,7 @@ export function saveClinicalFields(fields: ClinicalFieldInput): PetCtInterviewRe
     ...base,
     patient_base_info: {
       ...base.patient_base_info,
+      ...(fields.patientName !== undefined ? { name: fields.patientName } : {}),
       ...(fields.age !== undefined ? { age: fields.age } : {}),
       ...(fields.gender !== undefined ? { gender: fields.gender } : {}),
       ...(fields.department !== undefined ? { department: fields.department } : {}),
@@ -99,6 +120,17 @@ export function saveClinicalFields(fields: ClinicalFieldInput): PetCtInterviewRe
       ...(fields.medicalRecordId !== undefined
         ? { patient_internal_id: fields.medicalRecordId || base.research_extensions?.patient_internal_id }
         : {}),
+      lab_snapshot: mergeLabSnapshot(
+        base,
+        {
+          ...(fields.labSnapshot || {}),
+          ...(fields.tnmStage?.trim() ? { TNM分期: fields.tnmStage.trim() } : {}),
+          ...(fields.treatmentMethod?.trim() ? { 治疗方式: fields.treatmentMethod.trim() } : {}),
+          ...(fields.surgeryNumber?.trim() ? { 第几次手术: fields.surgeryNumber.trim() } : {}),
+          ...(fields.ivChemotherapy?.trim() ? { 是否静脉化疗: fields.ivChemotherapy.trim() } : {}),
+          ...(fields.ccScore?.trim() ? { CC评分: fields.ccScore.trim() } : {}),
+        },
+      ),
     },
   };
   saveWorkflowCase(updated);

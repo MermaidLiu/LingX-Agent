@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.models.domain import PetCtInterviewRecord, PetCtResearchExtensions
-from app.models.platform_schemas import AnalysisIntentBody, PathologyImagingGradeResult, PlatformChatAnalyzeResponse
+from app.models.platform_schemas import AnalysisIntentBody, PathologyImagingGradeResult, PciScoreResult, PlatformChatAnalyzeResponse
 from app.services.data_extractor import DataExtractor
 from app.services.deepseek_chat import generate_chat_reply
 from app.services.disease_classifier import apply_classification
@@ -108,6 +108,7 @@ async def analyze_chat_uploads(
         conf_txt = f"（置信度 {(conf * 100):.0f}%）" if conf is not None else ""
         diagnosis.evidence.insert(0, f"影像诊断分析：{imaging_result['grade_label']}{conf_txt}")
 
+    pci_raw = imaging_result.get("pci")
     pathology_grade = PathologyImagingGradeResult(
         status=str(imaging_result.get("status", "")),
         message=str(imaging_result.get("message", "")),
@@ -115,6 +116,8 @@ async def analyze_chat_uploads(
         confidence=imaging_result.get("confidence"),
         result_image_base64=str(imaging_result.get("result_image_base64", "")),
         dicom_count=int(imaging_result.get("dicom_count") or 0),
+        pci=PciScoreResult.model_validate(pci_raw) if isinstance(pci_raw, dict) else None,
+        raw=imaging_result.get("raw") if isinstance(imaging_result.get("raw"), dict) else {},
     )
 
     ai_reply, llm_model, llm_used = await generate_chat_reply(

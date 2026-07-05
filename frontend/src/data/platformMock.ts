@@ -121,9 +121,8 @@ export const MOCK_DIAGNOSIS = {
 
 export const MOCK_INDICATORS = [
   { name: "CEA", trend: "↑" },
-  { name: "CYFRA21-1", trend: "↑" },
-  { name: "NSE", trend: "→" },
-  { name: "CA125", trend: "↓" },
+  { name: "CA125", trend: "↑" },
+  { name: "CA19-9", trend: "→" },
 ];
 
 export const MOCK_TIMELINE = [

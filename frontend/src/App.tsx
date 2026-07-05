@@ -17,6 +17,7 @@ import PlatformResearchExtensionPage from "./pages/platform/PlatformResearchExte
 import PlatformResearchPublicationPage from "./pages/platform/PlatformResearchPublicationPage";
 import PlatformResearchPptPage from "./pages/platform/PlatformResearchPptPage";
 import PlatformPathologyDbPage from "./pages/platform/PlatformPathologyDbPage";
+import PlatformFollowUpPage from "./pages/platform/PlatformFollowUpPage";
 import PlatformWorkflowPage from "./pages/platform/PlatformWorkflowPage";
 
 /** 旧版模块入口（保留兼容，不在主导航展示） */
@@ -36,8 +37,9 @@ export default function App() {
         <Route path="db/patients" element={<PlatformPatientDbPage />} />
         <Route path="db/clinical" element={<PlatformClinicalDatasetPage />} />
         <Route path="db/clinical/:id" element={<PlatformClinicalDatasetPage />} />
-        <Route path="db/imaging" element={<PlatformImagingDbPage />} />
-        <Route path="db/pathology" element={<PlatformPathologyDbPage />} />
+        <Route path="db/imaging" element={<Navigate to="/db/patients" replace />} />
+        <Route path="db/pathology" element={<Navigate to="/db/patients" replace />} />
+        <Route path="db/follow-up" element={<PlatformFollowUpPage />} />
         <Route path="db/genetics" element={<Navigate to="/db/patients" replace />} />
         <Route path="db/literature" element={<Navigate to="/knowledge/library" replace />} />
         <Route path="analysis" element={<PlatformDiagnosisPage />} />

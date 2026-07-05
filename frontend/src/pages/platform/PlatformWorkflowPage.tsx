@@ -1,10 +1,11 @@
 import { ExperimentOutlined, LeftOutlined, RightOutlined, UploadOutlined } from "@ant-design/icons";
-import { App, Button, Col, Input, Row, Space, Tag, Typography, Upload } from "antd";
+import { App, Button, Col, Form, Input, InputNumber, Row, Select, Space, Tag, Typography, Upload } from "antd";
 import type { UploadFile } from "antd/es/upload/interface";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { MOCK_PATIENTS, WORKFLOW_STEPS } from "../../data/platformMock";
 import { getPendingCaseFileNames, setPendingCaseFiles, toNativeFiles } from "../../lib/platformCaseUpload";
+import { getWorkflowCase, saveClinicalFields } from "../../lib/workflowCase";
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -15,7 +16,30 @@ export default function PlatformWorkflowPage() {
   const nav = useNavigate();
   const [stepIndex, setStepIndex] = useState(0);
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
+  const [clinicalForm] = Form.useForm();
   const patient = MOCK_PATIENTS[0];
+
+  useEffect(() => {
+    const wf = getWorkflowCase();
+    const lab = wf.research_extensions?.lab_snapshot || {};
+    clinicalForm.setFieldsValue({
+      patientName: wf.patient_base_info.name,
+      age: wf.patient_base_info.age || undefined,
+      gender: wf.patient_base_info.gender || undefined,
+      department: wf.patient_base_info.department,
+      medicalRecordId: wf.patient_base_info.medical_record_id,
+      clinicalDiagnosis: wf.interview_info.clinical_diagnosis,
+      briefMedicalHistory: wf.interview_info.brief_medical_history,
+      tnmStage: lab["TNM分期"] || "",
+      cea: lab.CEA || "",
+      ca125: lab.CA125 || "",
+      ca19_9: lab["CA19-9"] || lab.CA199 || "",
+      treatmentMethod: lab["治疗方式"] || "",
+      surgeryNumber: lab["第几次手术"] || "",
+      ivChemotherapy: lab["是否静脉化疗"] || "",
+      ccScore: lab["CC评分"] || "",
+    });
+  }, [clinicalForm]);
 
   const activeStep = WORKFLOW_STEPS[stepIndex];
   const isFirst = stepIndex === 0;
@@ -37,7 +61,31 @@ export default function PlatformWorkflowPage() {
     setPendingCaseFiles(uploadFiles);
   }, [uploadFiles]);
 
+  function persistClinicalFields() {
+    const v = clinicalForm.getFieldsValue();
+    saveClinicalFields({
+      patientName: v.patientName,
+      age: v.age,
+      gender: v.gender,
+      department: v.department,
+      medicalRecordId: v.medicalRecordId,
+      clinicalDiagnosis: v.clinicalDiagnosis,
+      briefMedicalHistory: v.briefMedicalHistory,
+      tnmStage: v.tnmStage,
+      treatmentMethod: v.treatmentMethod,
+      surgeryNumber: v.surgeryNumber,
+      ivChemotherapy: v.ivChemotherapy,
+      ccScore: v.ccScore,
+      labSnapshot: {
+        CEA: v.cea,
+        CA125: v.ca125,
+        "CA19-9": v.ca19_9,
+      },
+    });
+  }
+
   function goToAnalysis() {
+    persistClinicalFields();
     const files = syncPendingFiles();
     if (!files.length) {
       message.warning("请先上传病例文件（至少包含 DICOM 或 ZIP）");
@@ -73,6 +121,123 @@ export default function PlatformWorkflowPage() {
             </Title>
             <Row gutter={[16, 16]}>
               <Col xs={24} lg={14}>
+                <div className="pmp-card" style={{ padding: 20, marginBottom: 16 }}>
+                  <div className="pmp-panel-title">临床信息</div>
+                  <Form form={clinicalForm} layout="vertical" size="middle" onValuesChange={() => persistClinicalFields()}>
+                    <Row gutter={12}>
+                      <Col xs={24} sm={12}>
+                        <Form.Item name="patientName" label="姓名">
+                          <Input placeholder="患者姓名" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={6}>
+                        <Form.Item name="age" label="年龄">
+                          <InputNumber min={0} max={120} style={{ width: "100%" }} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={6}>
+                        <Form.Item name="gender" label="性别">
+                          <Select allowClear options={[{ value: "男" }, { value: "女" }]} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} sm={12}>
+                        <Form.Item name="department" label="科室">
+                          <Input placeholder="如 妇科肿瘤科" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} sm={12}>
+                        <Form.Item name="medicalRecordId" label="病历号">
+                          <Input placeholder="院内病历号" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24}>
+                        <Form.Item name="clinicalDiagnosis" label="临床诊断" rules={[{ required: true, message: "请填写临床诊断" }]}>
+                          <Input placeholder="如 腹膜假粘液瘤（PMP）" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24}>
+                        <Form.Item name="briefMedicalHistory" label="病史摘要">
+                          <Input.TextArea rows={2} placeholder="主诉、既往史、手术史等" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} sm={8}>
+                        <Form.Item name="tnmStage" label="TNM 分期">
+                          <Input placeholder="cT2N1M0" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24}>
+                        <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+                          实验室指标
+                        </Text>
+                      </Col>
+                      <Col xs={8} sm={8}>
+                        <Form.Item name="cea" label="CEA">
+                          <Input placeholder="ng/mL" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={8} sm={8}>
+                        <Form.Item name="ca125" label="CA125">
+                          <Input placeholder="U/mL" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={8} sm={8}>
+                        <Form.Item name="ca19_9" label="CA19-9">
+                          <Input placeholder="U/mL" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24}>
+                        <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
+                          治疗与手术信息
+                        </Text>
+                      </Col>
+                      <Col xs={24} sm={12}>
+                        <Form.Item name="treatmentMethod" label="治疗方式">
+                          <Select
+                            allowClear
+                            placeholder="选择或输入"
+                            options={[
+                              { value: "CRS+HIPEC" },
+                              { value: "单纯CRS" },
+                              { value: "新辅助化疗+手术" },
+                              { value: "姑息化疗" },
+                              { value: "观察随访" },
+                            ]}
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={6}>
+                        <Form.Item name="surgeryNumber" label="第几次手术">
+                          <Select
+                            allowClear
+                            options={[
+                              { value: "第1次" },
+                              { value: "第2次" },
+                              { value: "第3次" },
+                              { value: "≥第4次" },
+                            ]}
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={6}>
+                        <Form.Item name="ivChemotherapy" label="是否静脉化疗">
+                          <Select allowClear options={[{ value: "是" }, { value: "否" }]} />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={6}>
+                        <Form.Item name="ccScore" label="CC评分">
+                          <Select
+                            allowClear
+                            options={[
+                              { value: "CC-0" },
+                              { value: "CC-1" },
+                              { value: "CC-2" },
+                            ]}
+                          />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  </Form>
+                </div>
                 <div className="pmp-card" style={{ padding: 20 }}>
                   <Upload.Dragger
                     multiple
@@ -115,7 +280,7 @@ export default function PlatformWorkflowPage() {
                 <div className="pmp-card" style={{ padding: 16 }}>
                   <div className="pmp-panel-title">说明</div>
                   <Paragraph type="secondary" style={{ fontSize: 13 }}>
-                    上传含 DICOM 的 ZIP 或 .dcm 文件后，点击「智能分析」将调用影像诊断分析接口，并在本页展示分析结果与可视化图像。
+                    填写临床信息与实验室指标（CEA、CA125、CA19-9）并上传 DICOM/ZIP 后进入智能分析：系统将输出影像分割、PCI 评分、综合报告、指南治疗建议，并可一键加入随访队列，再进入科研延伸。
                   </Paragraph>
                   {getPendingCaseFileNames().length > 0 ? (
                     <AlertLike text={`当前已缓存 ${getPendingCaseFileNames().length} 个文件，可直接进入智能分析`} />
@@ -133,7 +298,7 @@ export default function PlatformWorkflowPage() {
               智能分析 · 影像诊断分析
             </Title>
             <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-              在工作台上传 DICOM 后，系统将调用影像诊断分析接口进行影像分析。
+              完成影像+临床联合分析后，平台将输出综合报告与 NCCN/CSCO 指南治疗建议，确认后可加入随访队列。
             </Paragraph>
             <Button type="primary" size="large" icon={<ExperimentOutlined />} onClick={goToAnalysis}>
               进入智能分析
@@ -148,8 +313,16 @@ export default function PlatformWorkflowPage() {
               加入数据库
             </Title>
             <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-              智能分析完成后，病例与影像数据可入库，可在数据库中浏览（只读）。
+              分析完成并入队后，可在患者数据库（Excel 式总表，含临床/病理/影像）与随访队列查看；最新公开临床指标可在智能对话中通过 DeepSeek 检索。
             </Paragraph>
+            <Space wrap style={{ marginBottom: 16 }}>
+              <Link to="/db/follow-up">
+                <Button>随访队列</Button>
+              </Link>
+              <Link to="/db/patients">
+                <Button>患者数据库</Button>
+              </Link>
+            </Space>
             <Row gutter={16}>
               <Col xs={24} md={8}>
                 <div className="pmp-card" style={{ padding: 16 }}>

@@ -2,8 +2,26 @@ import { DatabaseOutlined, DownloadOutlined, ExperimentOutlined, ReloadOutlined,
 import { App, Alert, Button, Col, Collapse, Empty, Row, Space, Spin, Table, Tag, Typography } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { platformPathologyGrade, platformRetryPci, platformSavePathologyAnalysis, platformDownloadAnnotationDataset } from "../../api/platform";
+import { platformSavePathologyAnalysis, platformDownloadAnnotationDataset } from "../../api/platform";
 import type { PathologyImagingGradeResult, PciScoreResult } from "../../api/platform";
+import { saveCase } from "../../api/client";
+import { CarePathwayPanel } from "../../components/platform/CarePathwayPanel";
+import { addToFollowUpQueue, isInFollowUpQueue } from "../../lib/followUpQueue";
+import {
+  buildPathologyAnalysisStub,
+  buildRecordForCarePathway,
+  runCarePathwayAnalysis,
+  type CarePathwayResult,
+} from "../../lib/platformCarePathway";
+import { getWorkflowCase, saveWorkflowCase } from "../../lib/workflowCase";
+import {
+  getPathologyJobState,
+  isPathologyJobRunning,
+  shouldAutoStartPathologyAnalysis,
+  startPathologyAnalysis,
+  subscribePathologyJob,
+  type PathologyJobState,
+} from "../../lib/pathologyAnalysisJob";
 import {
   getPendingCaseFiles,
   getPendingCaseFileNames,
@@ -74,44 +92,25 @@ function primaryGradeColor(result: PathologyImagingGradeResult): "red" | "green"
   return gradeColor(formatPrimaryResult(result));
 }
 
-function mergePciIntoResult(result: PathologyImagingGradeResult, pci: PciScoreResult): PathologyImagingGradeResult {
-  const raw = { ...(result.raw ?? {}), pci, pci_paths_tried: pci.raw?.paths_tried ?? result.raw?.pci_paths_tried };
-  const regions = normalizePciRegions(pci);
-  const total = pci.pci_score ?? sumPciRegions(regions);
-  const gradeLabel = total != null ? `PCI ${total}/36` : result.grade_label;
-  return { ...result, pci, grade_label: gradeLabel, raw };
-}
-
-async function fetchMissingPci(result: PathologyImagingGradeResult, fileNames: string[]): Promise<PathologyImagingGradeResult> {
-  const pci = getPci(result);
-  if (pci && pci.status !== "pending") return result;
-  if (result.status !== "ok") return result;
-  const sessionId = String(result.raw?.sessionId ?? "");
-  if (!result.annotation_dataset_id && !result.exam_id && !sessionId) return result;
-  try {
-    const retried = await platformRetryPci({
-      annotationDatasetId: result.annotation_dataset_id,
-      examId: result.exam_id,
-      sessionId: sessionId || undefined,
-      uploadNames: fileNames.length ? fileNames : undefined,
-    });
-    return mergePciIntoResult(result, retried);
-  } catch {
-    return result;
-  }
-}
-
 function splitMessageParts(message: string): string[] {
+  const noise = [
+    "接口未返回本例分级",
+    "未返回病例级",
+    "未返回本例分级字段",
+    "已返回标注可视化图像",
+    "resultBase64",
+    "CT 分割与勾画已完成",
+    "CT 合并接口已返回",
+    "耗时：",
+    "命中服务端缓存",
+    "展示切片",
+  ];
   return message
     .split(/[·•]/)
     .map((s) => s.trim())
     .filter(Boolean)
-    .filter(
-      (s) =>
-        !s.includes("接口未返回本例分级") &&
-        !s.includes("未返回病例级") &&
-        !s.includes("未返回本例分级字段"),
-    );
+    .filter((s) => !noise.some((n) => s.includes(n)))
+    .filter((s, i, arr) => arr.indexOf(s) === i);
 }
 
 function PciSliceScoresTable({ slices }: { slices: NonNullable<PciScoreResult["slice_scores"]> }) {
@@ -279,21 +278,20 @@ function PciScorePanel({ pci, compact = false }: { pci: PciScoreResult; compact?
 
 function PathologyResultPanel({
   result,
-  pciFetching = false,
 }: {
   result: PathologyImagingGradeResult;
-  pciFetching?: boolean;
 }) {
   const { message: msgApi } = App.useApp();
   const [downloading, setDownloading] = useState(false);
   const isError = result.status === "error";
   const isSkipped = result.status === "skipped";
-  const messageParts = splitMessageParts(result.message || "");
+  const pci = getPci(result);
+  const fromCache = Boolean(result.raw?.cache_hit);
+  const messageParts = pci ? [] : splitMessageParts(result.message || "");
   const selectedSlice =
     result.raw && "selected_slice_filename" in result.raw
       ? String((result.raw as Record<string, unknown>).selected_slice_filename)
       : "";
-  const pci = getPci(result);
 
   async function handleDownloadZip() {
     if (!result.annotation_dataset_id) return;
@@ -330,8 +328,13 @@ function PathologyResultPanel({
         <Col xs={24} xl={10}>
             <div className="pmp-card pmp-diagnosis-summary">
             <div className="pmp-panel-title">本例影像分析</div>
+            {fromCache ? (
+              <Tag color="green" style={{ marginBottom: 8 }}>
+                已使用缓存结果
+              </Tag>
+            ) : null}
             <Paragraph type="secondary" style={{ fontSize: 12, marginTop: -4, marginBottom: 12 }}>
-              流程：DICOM 上传 → CT 分割勾画 → PCI 评分；病理分级需接口返回或人工确认。
+              CT 合并接口一次返回：分割勾画图（ctResults）+ PCI 报告（pci）。
             </Paragraph>
             {isError ? (
               <Alert type="error" message={result.message || "影像诊断分析接口调用失败"} showIcon />
@@ -347,35 +350,24 @@ function PathologyResultPanel({
                     <span className="pmp-diagnosis-confidence">置信度 {(result.confidence * 100).toFixed(0)}%</span>
                   ) : null}
                 </div>
-                {pciFetching ? (
-                  <div style={{ marginBottom: 12 }}>
-                    <Spin size="small" />{" "}
-                    <Text type="secondary" style={{ fontSize: 13, marginLeft: 8 }}>
-                      正在获取 PCI 评分…
-                    </Text>
-                  </div>
-                ) : pci ? (
+                {pci ? (
                   <PciScorePanel pci={pci} compact />
                 ) : hasAnnotatedImage(result.result_image_base64) ? (
                   <Alert
                     type="info"
                     showIcon
                     style={{ marginBottom: 12 }}
-                    message="分割已完成"
-                    description="PCI（genpci）需在 CT 分割落盘并返回 dcm_path 后调用。请让同学在上传/分割接口响应中加入 dcm_path 字段。"
+                    message="分割图已返回"
+                    description="PCI 报告字段未解析，请确认 CT 接口响应含 pci 对象（pciScore、conclusion 等）。"
                   />
                 ) : null}
-                {messageParts.length > 0 ? (
+                {!pci && messageParts.length > 0 ? (
                   <ul className="pmp-diagnosis-bullets">
                     {messageParts.map((part) => (
                       <li key={part}>{part}</li>
                     ))}
                   </ul>
-                ) : (
-                  <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 13 }}>
-                    分析完成
-                  </Paragraph>
-                )}
+                ) : null}
               </>
             )}
             <div className="pmp-diagnosis-meta">
@@ -405,10 +397,14 @@ function PathologyResultPanel({
             </div>
             {hasAnnotatedImage(result.result_image_base64) ? (
               <div className="pmp-diagnosis-image-wrap">
-                <img src={imageSrcFromBase64(result.result_image_base64)} alt="影像诊断标注图" />
+                <img src={imageSrcFromBase64(result.result_image_base64)} alt="CT 分割勾画图" />
+              </div>
+            ) : pci?.report_image_base64 && hasAnnotatedImage(pci.report_image_base64) ? (
+              <div className="pmp-diagnosis-image-wrap">
+                <img src={imageSrcFromBase64(pci.report_image_base64)} alt="PCI 报告图" />
               </div>
             ) : (
-              <Empty description="接口未返回标注图" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              <Empty description="合并接口未返回分割图" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             )}
           </div>
         </Col>
@@ -477,15 +473,70 @@ function PathologyResultPanel({
 
 export default function PlatformDiagnosisPage() {
   const { message } = App.useApp();
-  const [loading, setLoading] = useState(false);
-  const [pciFetching, setPciFetching] = useState(false);
+  const [jobState, setJobState] = useState<PathologyJobState>(() => getPathologyJobState());
   const [hydrating, setHydrating] = useState(true);
-  const [result, setResult] = useState<PathologyImagingGradeResult | null>(null);
+  const [result, setResult] = useState<PathologyImagingGradeResult | null>(() => getPathologyImagingOrNull());
   const [fileNames, setFileNames] = useState<string[]>(loadPlatformSession().uploadedFileNames);
   const [savedToDb, setSavedToDb] = useState(Boolean(loadPlatformSession().savedExamId));
   const [saving, setSaving] = useState(false);
-  const runningRef = useRef(false);
+  const [careResult, setCareResult] = useState<CarePathwayResult | null>(null);
+  const [careLoading, setCareLoading] = useState(false);
+  const [followUpLoading, setFollowUpLoading] = useState(false);
+  const [inFollowUp, setInFollowUp] = useState(false);
   const autoRanRef = useRef(false);
+
+  const loading = isPathologyJobRunning() || jobState.phase === "running";
+
+  useEffect(() => subscribePathologyJob(setJobState), []);
+
+  useEffect(() => {
+    if (!result || result.result_image_base64) return;
+    let cancelled = false;
+    void hydratePathologyImagingResult(result).then((hydrated) => {
+      if (!cancelled && hydrated?.result_image_base64) setResult(hydrated);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [result?.exam_id, result?.status, result?.result_image_base64]);
+
+  async function runCarePathway(imaging: PathologyImagingGradeResult, examId?: string) {
+    setCareLoading(true);
+    try {
+      const record = buildRecordForCarePathway(imaging, examId);
+      saveWorkflowCase(record);
+      const result = await runCarePathwayAnalysis(imaging, examId);
+      setCareResult(result);
+      setInFollowUp(isInFollowUpQueue(record.patient_base_info.exam_id));
+    } catch {
+      message.warning("治疗建议生成失败，请确认后端已启动且 DeepSeek 配置可用");
+    } finally {
+      setCareLoading(false);
+    }
+  }
+
+  async function handleEnrollFollowUp() {
+    if (!result || !careResult) return;
+    setFollowUpLoading(true);
+    try {
+      let examId = result.exam_id;
+      if (!savedToDb) {
+        const saved = await platformSavePathologyAnalysis(result, fileNames);
+        examId = saved.exam_id;
+        markSaved(saved.exam_id);
+        setSavedToDb(true);
+      }
+      const record = buildRecordForCarePathway({ ...result, exam_id: examId }, examId);
+      const analysisStub = buildPathologyAnalysisStub(careResult);
+      await addToFollowUpQueue(record, analysisStub, saveCase);
+      setInFollowUp(true);
+      message.success("已加入随访队列，可在「随访队列」查看");
+    } catch {
+      message.error("加入随访队列失败");
+    } finally {
+      setFollowUpLoading(false);
+    }
+  }
 
   async function joinDatabase() {
     if (!result || result.status !== "ok") {
@@ -512,7 +563,7 @@ export default function PlatformDiagnosisPage() {
     let cancelled = false;
     async function restorePrevious() {
       const session = loadPlatformSession();
-      if (pendingCaseFilesChanged(session.uploadedFileNames)) {
+      if (pendingCaseFilesChanged(session.uploadedFileNames, session.uploadedFileFingerprint)) {
         setHydrating(false);
         return;
       }
@@ -523,20 +574,9 @@ export default function PlatformDiagnosisPage() {
       }
       const hydrated = await hydratePathologyImagingResult(stored);
       if (!cancelled && hydrated) {
-        if (!getPci(hydrated) && hydrated.status === "ok") {
-          setPciFetching(true);
-          const withPci = await fetchMissingPci(hydrated);
-          if (!cancelled) {
-            setResult(withPci);
-            if (getPci(withPci)) {
-              setPathologyImagingResult(withPci, session.uploadedFileNames);
-            }
-          }
-          if (!cancelled) setPciFetching(false);
-        } else {
-          setResult(hydrated);
-        }
+        setResult(hydrated);
         setFileNames(session.uploadedFileNames);
+        if (hydrated.status === "ok") void runCarePathway(hydrated, hydrated.exam_id);
       }
       if (!cancelled) setHydrating(false);
     }
@@ -546,6 +586,44 @@ export default function PlatformDiagnosisPage() {
     };
   }, []);
 
+  async function applyAnalysisOutcome(
+    finalRes: PathologyImagingGradeResult,
+    names: string[],
+    opts?: { notify?: boolean; fromCache?: boolean },
+  ) {
+    const hydrated = (await hydratePathologyImagingResult(finalRes)) ?? finalRes;
+    setResult(hydrated);
+    setFileNames(names);
+    setSavedToDb(Boolean(hydrated.saved));
+    if (hydrated.status === "ok") {
+      void runCarePathway(hydrated, hydrated.exam_id);
+    } else {
+      setCareResult(null);
+    }
+    if (!opts?.notify) return;
+    if (hydrated.status === "error") {
+      message.error(hydrated.message || "影像诊断分析接口调用失败");
+    } else if (hydrated.status === "skipped") {
+      message.warning(hydrated.message);
+    } else {
+      const pci = getPci(hydrated);
+      const pciTotal = pci?.pci_score ?? (pci ? sumPciRegions(normalizePciRegions(pci)) : null);
+      if (opts.fromCache) {
+        message.success(pciTotal != null ? `已加载缓存 · PCI ${pciTotal}/36` : "已加载缓存结果");
+      } else if (pciTotal != null) {
+        message.success(`分割完成 · PCI ${pciTotal}/36`);
+      } else if (pci?.status === "pending") {
+        message.warning("分割完成；PCI 需 CT 返回 pci 字段");
+      } else if (pci?.status === "error") {
+        message.warning(`分割完成，但 PCI 失败：${pci.message}`);
+      } else if (pci?.status === "skipped") {
+        message.warning(`分割完成，但 PCI 未执行：${pci.message}`);
+      } else {
+        message.warning("分割完成，但 PCI 接口未返回 pciScore 总分");
+      }
+    }
+  }
+
   async function runPathologyAnalysis(force = false) {
     const files = getPendingCaseFiles();
     if (!files.length) {
@@ -554,71 +632,37 @@ export default function PlatformDiagnosisPage() {
       }
       return;
     }
-    if (runningRef.current) return;
-    runningRef.current = true;
-    setLoading(true);
-    try {
-      const res = await platformPathologyGrade(files);
-      let finalRes = res;
-      const names = getPendingCaseFileNames();
-      if (res.status === "ok" && (!getPci(res) || getPci(res)?.status === "pending")) {
-        setPciFetching(true);
-        try {
-          finalRes = await fetchMissingPci(res, names);
-        } finally {
-          setPciFetching(false);
-        }
-      }
-      setResult(finalRes);
-      setFileNames(names);
-      setPathologyImagingResult(finalRes, names);
-      setSavedToDb(Boolean(finalRes.saved));
-      if (finalRes.status === "error") {
-        message.error(finalRes.message || "影像诊断分析接口调用失败");
-      } else if (finalRes.status === "skipped") {
-        message.warning(finalRes.message);
-      } else {
-        const pci = getPci(finalRes);
-        const pciTotal =
-          pci?.pci_score ??
-          (pci ? sumPciRegions(normalizePciRegions(pci)) : null);
-        if (pciTotal != null) {
-          message.success(`分割完成 · PCI ${pciTotal}/36`);
-        } else if (pci?.status === "pending") {
-          message.warning("分割完成；PCI 需 CT 返回 dcm_path 后再调 genpci");
-        } else if (pci?.status === "error") {
-          message.warning(`分割完成，但 PCI 失败：${pci.message}`);
-        } else if (pci?.status === "skipped") {
-          message.warning(`分割完成，但 PCI 未执行：${pci.message}`);
-        } else {
-          message.warning("分割完成，但 PCI 接口未返回 pciScore 总分");
-        }
-      }
-    } catch (e) {
-      const errMsg = e instanceof Error ? e.message : "分析失败，请检查后端服务是否启动";
-      message.error(errMsg);
-      setResult({
-        status: "error",
-        message: errMsg,
-        grade_label: "",
-        confidence: null,
-        result_image_base64: "",
-        dicom_count: 0,
+    if (isPathologyJobRunning()) {
+      message.info("分析已在后台进行，可切换至其他页面");
+      return;
+    }
+    const outcome = await startPathologyAnalysis({ force });
+    if (outcome) {
+      await applyAnalysisOutcome(outcome.result, outcome.fileNames, {
+        notify: true,
+        fromCache: outcome.fromCache,
       });
-    } finally {
-      runningRef.current = false;
-      setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (autoRanRef.current || hydrating || !hasPendingCaseFiles()) return;
-    const session = loadPlatformSession();
-    const isNewBatch = pendingCaseFilesChanged(session.uploadedFileNames);
-    if (hasSuccessfulPathologyResult() && !isNewBatch) return;
+    if (jobState.phase !== "done" && jobState.phase !== "error") return;
+    const stored = getPathologyImagingOrNull();
+    if (!stored || result) return;
+    void hydratePathologyImagingResult(stored).then((hydrated) => {
+      if (hydrated) {
+        setResult(hydrated);
+        setFileNames(jobState.fileNames.length ? jobState.fileNames : loadPlatformSession().uploadedFileNames);
+        if (hydrated.status === "ok") void runCarePathway(hydrated, hydrated.exam_id);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobState.phase, jobState.finishedAt]);
+
+  useEffect(() => {
+    if (autoRanRef.current || hydrating || !shouldAutoStartPathologyAnalysis()) return;
     autoRanRef.current = true;
     void runPathologyAnalysis();
-    // 仅首次进入且有待分析文件、尚无历史结果时自动分析
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrating]);
 
@@ -634,7 +678,8 @@ export default function PlatformDiagnosisPage() {
             智能分析 · 影像诊断分析
           </Title>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            上传本例 DICOM，调用 AI 接口完成病灶勾画与本例影像分析（非多例队列对比）。
+            上传本例 DICOM，结合工作台临床信息与实验室指标（CEA、CA125、CA19-9）：输出分割/PCI → 影像报告 → 指南治疗建议 → 随访入队。
+            分析进行中可自由切换至其他页面，顶部会提示进度。
           </Paragraph>
         </div>
         <Space>
@@ -642,8 +687,8 @@ export default function PlatformDiagnosisPage() {
             <Button>返回工作台</Button>
           </Link>
           {result?.saved || savedToDb ? (
-            <Link to="/db/imaging">
-              <Button>查看影像数据库</Button>
+            <Link to="/db/patients">
+              <Button>查看患者数据库</Button>
             </Link>
           ) : null}
           {!loading && result?.status === "ok" && !savedToDb ? (
@@ -660,39 +705,41 @@ export default function PlatformDiagnosisPage() {
           >
             {hasResult ? "重新分析" : "开始分析"}
           </Button>
+          {hasResult ? (
+            <span style={{ fontSize: 12, color: "#888" }}>重新分析将忽略缓存并重新调用 CT 接口</span>
+          ) : null}
         </Space>
       </div>
 
-      {fileNames.length > 0 ? (
+      {result ? (
+        <>
+          <PathologyResultPanel result={result} />
+          {result.status === "ok" ? (
+            <CarePathwayPanel
+              imaging={result}
+              careResult={careResult}
+              careLoading={careLoading}
+              inFollowUp={inFollowUp}
+              followUpLoading={followUpLoading}
+              onEnroll={() => void handleEnrollFollowUp()}
+            />
+          ) : null}
+        </>
+      ) : null}
+
+      {loading && !result ? (
         <Alert
           type="info"
           showIcon
-          style={{ marginBottom: 16 }}
-          message={`已选择 ${fileNames.length} 个上传文件${result?.dicom_count ? ` · 解析出 ${result.dicom_count} 张 DICOM` : ""}`}
-          description={fileNames.length <= 8 ? fileNames.join(" · ") : `${fileNames.slice(0, 8).join(" · ")} … 等 ${fileNames.length} 个`}
-        />
-      ) : hasResult ? (
-        <Alert
-          type="success"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="已加载上次分析结果"
-          description={
-            result?.saved
-              ? `记录 ${result.exam_id || "—"} 已写入影像数据库，可在「影像数据库」查看。`
-              : "如需重新分析，请返回工作台上传新的 DICOM 文件。"
-          }
+          style={{ marginBottom: 12 }}
+          message={jobState.message || "影像诊断分析进行中…"}
+          description="CT 合并接口一次返回分割图与 PCI（同学侧约 5 分钟）。相同文件再次分析将直接使用缓存。"
         />
       ) : null}
 
-      {hydrating || loading ? (
-        <div style={{ textAlign: "center", padding: 48 }}>
-          <Spin size="large" tip={loading ? "正在调用影像诊断分析接口，请稍候…" : "正在加载上次分析结果…"} />
-          {loading ? (
-            <Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
-              分析通常需要约 5 分钟；完成后将展示结果，并自动保存全部切片标注数据与 mask（501 层约需额外 1–2 分钟）
-            </Paragraph>
-          ) : null}
+      {hydrating && !result ? (
+        <div style={{ textAlign: "center", padding: 16 }}>
+          <Spin tip="正在加载上次分析结果…" />
         </div>
       ) : null}
 
@@ -706,8 +753,18 @@ export default function PlatformDiagnosisPage() {
         </Empty>
       ) : null}
 
-      {!loading && !hydrating && result ? (
-        <PathologyResultPanel result={result} pciFetching={pciFetching} />
+      {fileNames.length > 0 && !loading ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginTop: result ? 16 : 0 }}
+          message={`已选择 ${fileNames.length} 个上传文件${result?.dicom_count ? ` · 解析出 ${result.dicom_count} 张 DICOM` : ""}`}
+          description={
+            fileNames.length <= 3
+              ? fileNames.join(" · ")
+              : `${fileNames.slice(0, 3).join(" · ")} … 等 ${fileNames.length} 个`
+          }
+        />
       ) : null}
     </div>
   );

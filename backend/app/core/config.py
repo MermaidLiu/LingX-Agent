@@ -73,7 +73,10 @@ class Settings(BaseModel):
         )
     )
     pathology_imaging_api_timeout: float = Field(
-        default_factory=lambda: float(_e("PATHOLOGY_IMAGING_API_TIMEOUT", "420"))
+        default_factory=lambda: float(_e("PATHOLOGY_IMAGING_API_TIMEOUT", "720"))
+    )
+    pathology_grade_cache_enabled: bool = Field(
+        default_factory=lambda: _e_bool("PATHOLOGY_GRADE_CACHE_ENABLED", True)
     )
     pci_api_url: str = Field(
         default_factory=lambda: _e("PCI_API_URL", "http://42.81.102.195:8509/genpci")
@@ -90,7 +93,7 @@ class Settings(BaseModel):
     pci_poll_interval_seconds: float = Field(
         default_factory=lambda: float(_e("PCI_POLL_INTERVAL_SECONDS", "10"))
     )
-    pci_poll_max_attempts: int = Field(default_factory=lambda: int(_e("PCI_POLL_MAX_ATTEMPTS", "18")))
+    pci_poll_max_attempts: int = Field(default_factory=lambda: int(_e("PCI_POLL_MAX_ATTEMPTS", "0")))
     cors_allow_origins: list[str] = Field(default_factory=_e_cors_origins)
 
 

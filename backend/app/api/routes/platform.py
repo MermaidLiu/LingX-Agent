@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.domain import PetCtInterviewRecord
 from app.models.platform_schemas import (
     AnalysisIntentBody,
     AnnotationDatasetSummary,
+    CarePathwayAnalyzeBody,
+    CarePathwayAnalyzeResponse,
     PathologyImagingGradeResult,
     PathologySaveRequest,
     PlatformChatAnalyzeResponse,
@@ -35,7 +38,13 @@ from app.models.platform_schemas import (
     PlatformSaveResponse,
 )
 from app.repositories import pet_ct_case
-from app.services.pathology_imaging_client import predict_grade_from_imaging
+from app.services.pathology_grade_cache import (
+    compute_upload_fingerprint,
+    load_grade_cache,
+    save_grade_cache,
+    slim_result_for_cache,
+)
+from app.services.pathology_imaging_client import normalize_ct_api_payload, predict_grade_from_imaging
 from app.services.platform_adapters import (
     build_diagnosis,
     record_to_imaging_row,
@@ -49,7 +58,14 @@ from app.services.platform_annotation_dataset import (
     load_annotation_manifest,
     save_annotation_dataset_from_api,
 )
-from app.services.pci_scoring_client import predict_pci_after_segmentation, predict_pci_score, try_parse_pci_from_manifest
+from app.services.pci_scoring_client import (
+    predict_pci_after_segmentation,
+    predict_pci_score,
+    try_parse_embedded_pci,
+    try_parse_pci_from_ct_slices,
+    try_parse_pci_from_manifest,
+)
+from app.services.care_pathway_llm import analyze_care_pathway
 from app.services.platform_analysis import analyze_chat_uploads
 from app.services.platform_knowledge import generate_document, search_knowledge
 from app.services.platform_research import run_research_task
@@ -95,10 +111,17 @@ def platform_diagnosis_demo(db: Session = Depends(get_db)) -> PlatformDiagnosisR
 @router.get("/patients", response_model=list[PlatformPatientRow])
 def platform_list_patients(
     keyword: str = "",
+    grade_label: str = "",
+    follow_up: bool = False,
     db: Session = Depends(get_db),
 ) -> list[PlatformPatientRow]:
     rows = pet_ct_case.list_all(db, limit=500)
     patients = [record_to_patient_row(pet_ct_case.orm_to_record(r)) for r in rows]
+    g = grade_label.strip()
+    if g and g not in ("全部", "all", "—"):
+        patients = [p for p in patients if p.gradeLabel == g]
+    if follow_up:
+        patients = [p for p in patients if p.followUpStatus == "随访中"]
     k = keyword.strip().lower()
     if not k:
         return patients
@@ -109,6 +132,14 @@ def platform_list_patients(
         or k in p.name.lower()
         or k in (p.diagnosis or "").lower()
         or k in (p.department or "").lower()
+        or k in (p.clinicalSummary or "").lower()
+        or k in (p.pathologySummary or "").lower()
+        or k in (p.imagingSummary or "").lower()
+        or k in (p.treatmentMethod or "").lower()
+        or k in (p.surgeryNumber or "").lower()
+        or k in (p.ivChemotherapy or "").lower()
+        or k in (p.ccScore or "").lower()
+        or (p.pciScore is not None and k in str(p.pciScore))
     ]
 
 
@@ -165,23 +196,47 @@ async def platform_research_run(
 
 @router.post("/pathology/grade", response_model=PathologyImagingGradeResult)
 async def platform_pathology_grade(
+    background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
     return_base64: bool = Form(True),
     save_to_db: bool = Form(False),
-    save_annotation_dataset: bool = Form(True),
+    save_annotation_dataset: bool = Form(False),
     run_pci: bool = Form(True),
     dcm_path: str = Form(""),
+    use_cache: bool = Form(True),
+    force_refresh: bool = Form(False),
     db: Session = Depends(get_db),
 ) -> PathologyImagingGradeResult:
-    """Upload DICOM → CT segmentation → optional PCI scoring."""
+    """Upload DICOM → CT merged API (segmentation + PCI in one call). Cached by file fingerprint."""
+    import time
+
+    t_start = time.perf_counter()
     file_items: list[tuple[str, bytes]] = []
     upload_names: list[str] = []
     for uf in files:
         name = uf.filename or "upload.dcm"
         upload_names.append(name)
         file_items.append((name, await uf.read()))
-    raw = await predict_grade_from_imaging(file_items, return_base64=return_base64)
+    t_read = time.perf_counter()
+
+    fingerprint = compute_upload_fingerprint(file_items)
+    t_fp = time.perf_counter()
+    if use_cache and not force_refresh and settings.pathology_grade_cache_enabled:
+        cached = load_grade_cache(fingerprint)
+        if cached:
+            cached = dict(cached)
+            msg = str(cached.get("message") or "")
+            if "缓存" not in msg:
+                cached["message"] = "已使用缓存结果"
+            if isinstance(cached.get("raw"), dict):
+                cached["raw"] = {**cached["raw"], "cache_hit": True, "fingerprint": fingerprint[:16]}
+            return PathologyImagingGradeResult.model_validate(cached)
+
+    raw = await predict_grade_from_imaging(file_items, return_base64=return_base64, run_pci=run_pci)
+    t_ct = time.perf_counter()
     api_payload = raw.pop("_api_payload", None)
+    if isinstance(api_payload, dict):
+        api_payload = normalize_ct_api_payload(api_payload)
     raw_payload = raw.get("raw") if isinstance(raw.get("raw"), dict) else {}
 
     exam_id = ""
@@ -219,45 +274,47 @@ async def platform_pathology_grade(
             err = f"标注数据集保存失败：{exc}"
             raw["message"] = f"{raw.get('message', '')} · {err}".strip(" ·")
 
-    pci_result: dict[str, Any] | None = None
+    pci_result: dict[str, Any] | None = raw.pop("pci", None) if isinstance(raw.get("pci"), dict) else None
     segmentation_done = raw.get("status") == "ok" and isinstance(api_payload, dict)
-    if run_pci and segmentation_done:
-        try:
-            pci_result = await predict_pci_after_segmentation(
-                api_payload,
-                exam_id="",
-                dcm_path_override=dcm_path.strip(),
-                upload_names=upload_names,
-                segmentation_complete=True,
-            )
-            if pci_result.get("status") == "ok":
-                raw["message"] = f"{raw.get('message', '')} · {pci_result.get('message', '')}".strip(" ·")
-                if pci_result.get("pci_score") is not None and not raw.get("grade_label"):
-                    raw["grade_label"] = f"PCI {pci_result['pci_score']}/36"
-            elif pci_result.get("status") == "pending":
-                raw["message"] = f"{raw.get('message', '')} · {pci_result.get('message', '')}".strip(" ·")
-            elif pci_result.get("status") not in ("skipped",):
-                raw["message"] = f"{raw.get('message', '')} · PCI：{pci_result.get('message', '')}".strip(" ·")
-            elif pci_result.get("status") == "skipped":
-                raw["message"] = f"{raw.get('message', '')} · {pci_result.get('message', '')}".strip(" ·")
-            if isinstance(raw_payload, dict) and pci_result:
-                raw_payload["pci"] = pci_result
-                raw_payload["pci_paths_tried"] = pci_result.get("paths_tried", [])
-                if api_payload.get("sessionId"):
-                    raw_payload["sessionId"] = api_payload.get("sessionId")
-        except Exception as exc:
-            raw["message"] = f"{raw.get('message', '')} · PCI 调用异常：{exc}".strip(" ·")
+    # 合并接口 runPci=true：只解析响应内 pci，不再二次调用 genpci（避免额外 5+ 分钟）
+    if run_pci and segmentation_done and not pci_result and isinstance(api_payload, dict):
+        pci_result = try_parse_embedded_pci(api_payload)
+        if not pci_result or pci_result.get("pci_score") is None:
+            slice_pci = try_parse_pci_from_ct_slices(api_payload)
+            if slice_pci:
+                pci_result = slice_pci
+        if pci_result and pci_result.get("status") == "ok":
+            if pci_result.get("pci_score") is not None and not raw.get("grade_label"):
+                raw["grade_label"] = f"PCI {pci_result['pci_score']}/36"
+        elif not pci_result:
             pci_result = {
-                "status": "error",
-                "message": str(exc),
+                "status": "pending",
+                "message": "CT 合并接口未返回 pci 对象，请确认 CT 服务 runPci=true 且响应含 pciScore",
                 "pci_score": None,
                 "regions": [],
-                "raw": {},
+                "raw": {"pci_merged_api": True},
             }
-            if isinstance(raw_payload, dict):
-                raw_payload["pci"] = pci_result
+            raw["message"] = f"{raw.get('message', '')} · {pci_result['message']}".strip(" ·")
+    elif pci_result and isinstance(raw_payload, dict):
+        if pci_result.get("pci_score") is not None and not raw.get("grade_label"):
+            raw["grade_label"] = f"PCI {pci_result['pci_score']}/36"
 
-    return PathologyImagingGradeResult(
+    if isinstance(raw_payload, dict) and pci_result:
+        raw_payload["pci"] = pci_result
+        raw_payload["pci_paths_tried"] = pci_result.get("paths_tried", [])
+        raw_payload["pci_merged_api"] = bool(raw_payload.get("pci_merged_api") or pci_result.get("source") == "ct_merged_pci")
+        if api_payload and api_payload.get("sessionId"):
+            raw_payload["sessionId"] = api_payload.get("sessionId")
+
+    if isinstance(raw_payload, dict):
+        raw_payload["timing_seconds"] = {
+            "read": round(t_read - t_start, 2),
+            "fingerprint": round(t_fp - t_read, 2),
+            "ct_api": round(t_ct - t_fp, 2),
+            "total": round(t_ct - t_start, 2),
+        }
+
+    response = PathologyImagingGradeResult(
         status=str(raw.get("status", "")),
         message=str(raw.get("message", "")),
         grade_label=str(raw.get("grade_label", "")),
@@ -272,6 +329,20 @@ async def platform_pathology_grade(
         annotation_slices_with_mask=annotation_slices_with_mask,
         pci=PciScoreResult.model_validate(pci_result) if pci_result else None,
     )
+
+    if (
+        settings.pathology_grade_cache_enabled
+        and response.status == "ok"
+        and (response.result_image_base64 or response.pci)
+    ):
+        background_tasks.add_task(
+            save_grade_cache,
+            fingerprint,
+            slim_result_for_cache(response.model_dump(mode="json")),
+            upload_names=upload_names,
+        )
+
+    return response
 
 
 @router.post("/pathology/pci", response_model=PciScoreResult)
@@ -369,6 +440,20 @@ def platform_list_pathology(keyword: str = "", db: Session = Depends(get_db)) ->
             or k in x.gradeLabel.lower()
         ]
     return out
+
+
+@router.post("/care-pathway/analyze", response_model=CarePathwayAnalyzeResponse)
+async def platform_care_pathway_analyze(body: CarePathwayAnalyzeBody) -> CarePathwayAnalyzeResponse:
+    """Imaging report from CT API conclusion; treatment suggestions via DeepSeek."""
+    raw = await analyze_care_pathway(body.imaging, body.record)
+    treatment = raw.get("treatment") or {}
+    return CarePathwayAnalyzeResponse(
+        imaging_report=str(raw.get("imaging_report") or ""),
+        api_conclusion=str(raw.get("api_conclusion") or ""),
+        inferred_diagnosis=str(raw.get("inferred_diagnosis") or ""),
+        treatment=treatment,
+        literature=raw.get("literature") or [],
+    )
 
 
 @router.post("/pathology/save", response_model=PlatformSaveResponse)

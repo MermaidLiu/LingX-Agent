@@ -43,6 +43,18 @@ class PlatformPatientRow(BaseModel):
     admissionTime: str
     gradeLabel: str = "—"
     followUpStatus: str = "—"
+    examId: str = ""
+    clinicalSummary: str = ""
+    pathologySummary: str = ""
+    imagingSummary: str = ""
+    pciScore: int | None = None
+    hasAnnotatedImage: bool = False
+    modality: str = ""
+    dicomCount: int = 0
+    treatmentMethod: str = "—"
+    surgeryNumber: str = "—"
+    ivChemotherapy: str = "—"
+    ccScore: str = "—"
 
 
 class PlatformImagingRow(BaseModel):
@@ -117,6 +129,7 @@ class PciScoreResult(BaseModel):
     regions: list[PciRegionScore] = Field(default_factory=list)
     slice_scores: list[PciSliceScore] = Field(default_factory=list)
     conclusion: str = ""
+    report_image_base64: str = ""
     dcm_path_used: str = ""
     raw: dict[str, Any] = Field(default_factory=dict)
 
@@ -162,6 +175,28 @@ class PlatformChatAnalyzeResponse(BaseModel):
 class PathologySaveRequest(BaseModel):
     result: PathologyImagingGradeResult
     uploaded_file_names: list[str] = Field(default_factory=list)
+
+
+class CarePathwayAnalyzeBody(BaseModel):
+    imaging: PathologyImagingGradeResult
+    record: PetCtInterviewRecord
+
+
+class CarePathwayTreatmentBlock(BaseModel):
+    recommendations: list[str] = Field(default_factory=list)
+    grade_label: str = ""
+    mdt_recommended: bool = False
+    guideline_refs: list[str] = Field(default_factory=list)
+    llm_used: bool = False
+    llm_model: str = ""
+
+
+class CarePathwayAnalyzeResponse(BaseModel):
+    imaging_report: str = ""
+    api_conclusion: str = ""
+    inferred_diagnosis: str = ""
+    treatment: CarePathwayTreatmentBlock = Field(default_factory=CarePathwayTreatmentBlock)
+    literature: list[dict[str, str]] = Field(default_factory=list)
 
 
 class PublicationTopicRow(BaseModel):

@@ -33,8 +33,18 @@ export function getPendingCaseFileNames(): string[] {
   return pendingFiles.map((f) => f.name);
 }
 
-export function pendingCaseFilesChanged(storedNames: string[]): boolean {
+/** Stable id for same upload batch (name + size + lastModified). */
+export function pendingCaseFilesFingerprint(): string {
+  return pendingFiles
+    .map((f) => `${f.name}\0${f.size}\0${f.lastModified}`)
+    .sort()
+    .join("\n");
+}
+
+export function pendingCaseFilesChanged(storedNames: string[], storedFingerprint = ""): boolean {
   if (!pendingFiles.length) return false;
+  const fp = pendingCaseFilesFingerprint();
+  if (storedFingerprint && fp === storedFingerprint) return false;
   const a = pendingFiles.map((f) => f.name).sort().join("\0");
   const b = [...storedNames].sort().join("\0");
   return a !== b;

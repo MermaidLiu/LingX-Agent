@@ -10,9 +10,15 @@ import {
   SettingOutlined,
   TeamOutlined,
 } from "@ant-design/icons";
-import { Badge, Input, Layout, Menu, Space, Typography } from "antd";
-import { useMemo, useState } from "react";
+import { Badge, Input, Layout, Menu, Space, Typography, Alert, Button } from "antd";
+import { useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import {
+  getPathologyJobState,
+  isPathologyJobRunning,
+  subscribePathologyJob,
+  type PathologyJobState,
+} from "../lib/pathologyAnalysisJob";
 
 const { Sider, Header, Content } = Layout;
 
@@ -35,9 +41,8 @@ const MENU: MenuItem[] = [
     label: "数据库",
     children: [
       { key: "/db/patients", label: "患者数据库", path: "/db/patients" },
-      { key: "/db/clinical", label: "临床数据集", path: "/db/clinical" },
-      { key: "/db/imaging", label: "影像数据库", path: "/db/imaging" },
-      { key: "/db/pathology", label: "病理数据库", path: "/db/pathology" },
+      { key: "/db/follow-up", label: "随访队列", path: "/db/follow-up" },
+      { key: "/db/clinical", label: "临床数据集（科研）", path: "/db/clinical" },
     ],
   },
   {
@@ -71,6 +76,13 @@ export default function PlatformLayout() {
   const nav = useNavigate();
   const loc = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const [pathologyJob, setPathologyJob] = useState<PathologyJobState>(() => getPathologyJobState());
+
+  useEffect(() => subscribePathologyJob(setPathologyJob), []);
+
+  const jobRunning = isPathologyJobRunning() || pathologyJob.phase === "running";
+  const jobDoneAway =
+    pathologyJob.phase === "done" && !loc.pathname.startsWith("/analysis") && Boolean(pathologyJob.finishedAt);
 
   const menuItems = useMemo(
     () =>
@@ -178,6 +190,41 @@ export default function PlatformLayout() {
           </Space>
         </Header>
         <Content className="pmp-content">
+          {jobRunning ? (
+            <Alert
+              type="info"
+              showIcon
+              banner
+              style={{ marginBottom: 0 }}
+              message="影像诊断分析进行中"
+              description={
+                <span>
+                  {pathologyJob.message ||
+                    "正在调用 CT 合并接口（分割 + PCI 报告），同学侧约 5 分钟；相同文件再次分析秒级缓存。您可以自由浏览其他页面，完成后可在「智能分析」查看结果。"}
+                  <Button type="link" size="small" onClick={() => nav("/analysis")} style={{ padding: 0, marginLeft: 8 }}>
+                    查看进度
+                  </Button>
+                </span>
+              }
+            />
+          ) : jobDoneAway ? (
+            <Alert
+              type="success"
+              showIcon
+              banner
+              closable
+              style={{ marginBottom: 0 }}
+              message="影像分析已完成"
+              description={
+                <span>
+                  {pathologyJob.message}
+                  <Button type="link" size="small" onClick={() => nav("/analysis")} style={{ padding: 0, marginLeft: 8 }}>
+                    查看结果
+                  </Button>
+                </span>
+              }
+            />
+          ) : null}
           <Outlet />
         </Content>
       </Layout>

@@ -69,25 +69,32 @@ _PMP_EVIDENCE_RULES: list[tuple[str, str, str]] = [
 # 已知临床指标与诊断结果的相关性知识库（可随病例积累扩展）
 _INDICATOR_KNOWLEDGE: list[dict[str, Any]] = [
     {
-        "indicator": "Ki-67",
-        "correlation": "增殖指数与诊断结果（高级别）正相关",
-        "strength": "强",
+        "indicator": "CEA",
+        "correlation": "腺癌分化程度与 CEA 水平部分相关，PMP/结直肠粘液性肿瘤常升高",
+        "strength": "中",
         "direction": "positive",
-        "refs": ["WHO Classification of Tumours 5th ed.", "Lancet Oncol 2022; Ki-67 in breast cancer"],
+        "refs": ["Tumour Biol 2021; CEA in GI cancers", "NCCN Colon Cancer Guidelines 2024"],
     },
     {
         "indicator": "CA125",
-        "correlation": "卵巢高级别浆液性癌常显著升高",
+        "correlation": "腹膜/卵巢来源肿瘤及腹膜种植时 CA125 可显著升高",
         "strength": "中",
         "direction": "positive",
         "refs": ["NCCN Ovarian Cancer Guidelines 2024"],
     },
     {
-        "indicator": "CEA",
-        "correlation": "腺癌分化程度与 CEA 水平部分相关",
+        "indicator": "CA19-9",
+        "correlation": "消化道腺癌及腹膜假粘液瘤等 CA19-9 升高与肿瘤负荷相关",
         "strength": "中",
         "direction": "positive",
-        "refs": ["Tumour Biol 2021; CEA in GI cancers"],
+        "refs": ["CA19-9 in mucinous appendiceal neoplasms", "Ann Surg Oncol 2020"],
+    },
+    {
+        "indicator": "Ki-67",
+        "correlation": "增殖指数与诊断结果（高级别）正相关",
+        "strength": "强",
+        "direction": "positive",
+        "refs": ["WHO Classification of Tumours 5th ed.", "Lancet Oncol 2022; Ki-67 in breast cancer"],
     },
     {
         "indicator": "SUVmax",

@@ -174,7 +174,7 @@ def _rows_for_task(
 
     rng = np.random.default_rng(abs(hash(task_id)) % (2**32))
     factors_pool = {
-        "clinical": ["Ki-67 高表达", "肿瘤大小 ≥ 3cm", "CEA 升高", "年龄 ≥ 60", "淋巴结转移", "病理分级（高级别）"],
+        "clinical": ["CEA 升高", "CA125 升高", "CA19-9 升高", "肿瘤大小 ≥ 3cm", "年龄 ≥ 60", "淋巴结转移", "病理分级（高级别）"],
         "imaging": ["SUVmax", "MTV", "纹理熵", "形态长径比", "FDG 摄取异质性", "深度学习特征 #3"],
         "multimodal": ["临床+影像融合", "病理+组学", "SUVmax×Ki-67", "融合风险评分", "基因分型预测"],
     }

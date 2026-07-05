@@ -1,167 +1,258 @@
-import { DatabaseOutlined, TeamOutlined, UploadOutlined } from "@ant-design/icons";
-import { App, AutoComplete, Button, Input, Space, Spin, Table, Tag, Typography } from "antd";
+import { DatabaseOutlined, ExperimentOutlined, MessageOutlined, TeamOutlined } from "@ant-design/icons";
+import { App, Alert, Button, Input, Select, Space, Spin, Table, Tag, Typography } from "antd";
+import type { ColumnsType } from "antd/es/table";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { platformListPatients, type PlatformPatient } from "../../api/platform";
+import PatientImagingModal, { ImagingViewButton } from "../../components/platform/PatientImagingModal";
 
-const { Title, Text } = Typography;
+const { Title, Text, Paragraph } = Typography;
 
-const COHORT_PRESETS = [
-  "全部病例",
-  "PMP 专病库（n=128）",
-  "高级别亚组",
-  "低级别亚组",
-  "随访中队列",
-  "2024 年入组",
+const GRADE_FILTER_OPTIONS = [
+  { value: "全部", label: "全部" },
+  { value: "高级别", label: "高级别" },
+  { value: "低级别", label: "低级别" },
+  { value: "未确定", label: "未确定" },
 ];
 
-type PatientRow = {
-  id: string;
-  name: string;
-  gender: string;
-  age: number;
-  diagnosis: string;
-  stage: string;
-  gradeLabel: string;
-  followUpStatus: string;
-  enrolledAt: string;
-  department: string;
-};
-
-function toRow(p: PlatformPatient): PatientRow {
-  return {
-    id: p.id,
-    name: p.name,
-    gender: p.gender,
-    age: p.age,
-    diagnosis: p.diagnosis,
-    stage: p.stage,
-    gradeLabel: p.gradeLabel ?? "—",
-    followUpStatus: p.followUpStatus ?? "—",
-    enrolledAt: p.enrolledAt,
-    department: p.department,
-  };
+function gradeTag(v: string) {
+  if (v === "高级别") return <Tag color="red">{v}</Tag>;
+  if (v === "低级别") return <Tag color="green">{v}</Tag>;
+  if (v === "未确定") return <Tag>{v}</Tag>;
+  return v || "—";
 }
 
-function matchCohort(row: PatientRow, cohort: string): boolean {
-  const c = cohort.trim();
-  if (!c || c === "全部病例") return true;
-  if (c.includes("高级别")) return row.gradeLabel === "高级别";
-  if (c.includes("低级别")) return row.gradeLabel === "低级别";
-  if (c.includes("随访")) return row.followUpStatus === "随访中";
-  if (c.includes("2024")) return row.enrolledAt.startsWith("2024");
-  if (c.includes("PMP") || c.includes("专病")) return true;
-  return (
-    row.diagnosis.toLowerCase().includes(c.toLowerCase()) ||
-    row.name.includes(c) ||
-    row.id.toLowerCase().includes(c.toLowerCase()) ||
-    row.department.includes(c)
-  );
+function cell(v?: string | null) {
+  return v && v !== "—" ? v : "—";
 }
 
 export default function PlatformPatientDbPage() {
   const { message } = App.useApp();
   const [keyword, setKeyword] = useState("");
-  const [cohort, setCohort] = useState("全部病例");
-  const [rows, setRows] = useState<PatientRow[]>([]);
+  const [gradeFilter, setGradeFilter] = useState("全部");
+  const [followUpOnly, setFollowUpOnly] = useState(false);
+  const [rows, setRows] = useState<PlatformPatient[]>([]);
   const [loading, setLoading] = useState(true);
+  const [viewPatient, setViewPatient] = useState<PlatformPatient | null>(null);
 
   const fetchPatients = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await platformListPatients();
-      setRows(data.map(toRow));
+      const data = await platformListPatients({
+        keyword,
+        gradeLabel: gradeFilter,
+        followUp: followUpOnly,
+      });
+      setRows(data);
     } catch {
       message.error("加载患者数据库失败，请确认后端已启动");
     } finally {
       setLoading(false);
     }
-  }, [message]);
+  }, [message, keyword, gradeFilter, followUpOnly]);
 
   useEffect(() => {
-    fetchPatients();
+    const t = window.setTimeout(() => void fetchPatients(), 200);
+    return () => window.clearTimeout(t);
   }, [fetchPatients]);
 
-  const filtered = useMemo(() => {
-    const k = keyword.trim().toLowerCase();
-    return rows.filter((p) => {
-      if (!matchCohort(p, cohort)) return false;
-      if (!k) return true;
-      return (
-        p.id.toLowerCase().includes(k) ||
-        p.name.toLowerCase().includes(k) ||
-        p.diagnosis.toLowerCase().includes(k)
-      );
-    });
-  }, [rows, keyword, cohort]);
+  const stats = useMemo(
+    () => ({
+      total: rows.length,
+      high: rows.filter((r) => r.gradeLabel === "高级别").length,
+      low: rows.filter((r) => r.gradeLabel === "低级别").length,
+      follow: rows.filter((r) => r.followUpStatus === "随访中").length,
+    }),
+    [rows],
+  );
+
+  const columns: ColumnsType<PlatformPatient> = [
+    { title: "患者 ID", dataIndex: "id", width: 120, fixed: "left" },
+    { title: "姓名", dataIndex: "name", width: 80, fixed: "left" },
+    {
+      title: "基本信息",
+      width: 120,
+      render: (_, r) => (
+        <span>
+          {r.gender} · {r.age}岁
+          <br />
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            {r.department}
+          </Text>
+        </span>
+      ),
+    },
+    {
+      title: "临床信息",
+      dataIndex: "clinicalSummary",
+      width: 180,
+      ellipsis: true,
+      render: (v: string, r) => (
+        <span title={v}>
+          <div>{r.diagnosis}</div>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            {v !== "—" ? v : r.chiefComplaint}
+          </Text>
+        </span>
+      ),
+    },
+    {
+      title: (
+        <div className="pmp-grade-col-head">
+          <span>病理分级</span>
+          <Select
+            size="small"
+            value={gradeFilter}
+            options={GRADE_FILTER_OPTIONS}
+            onChange={setGradeFilter}
+            popupMatchSelectWidth={false}
+            className="pmp-grade-col-select"
+          />
+        </div>
+      ),
+      dataIndex: "gradeLabel",
+      width: 100,
+      render: (v: string) => gradeTag(v),
+    },
+    {
+      title: "治疗方式",
+      dataIndex: "treatmentMethod",
+      width: 110,
+      ellipsis: true,
+      render: (v: string) => cell(v),
+    },
+    {
+      title: "第几次手术",
+      dataIndex: "surgeryNumber",
+      width: 96,
+      render: (v: string) => cell(v),
+    },
+    {
+      title: "静脉化疗",
+      dataIndex: "ivChemotherapy",
+      width: 88,
+      render: (v: string) =>
+        v === "是" ? <Tag color="orange">是</Tag> : v === "否" ? <Tag>否</Tag> : "—",
+    },
+    {
+      title: "PCI",
+      dataIndex: "pciScore",
+      width: 72,
+      render: (v: number | null | undefined) => (v != null ? `${v}/36` : "—"),
+    },
+    {
+      title: "CC评分",
+      dataIndex: "ccScore",
+      width: 80,
+      render: (v: string) => cell(v),
+    },
+    {
+      title: "影像",
+      width: 140,
+      render: (_, r) => (
+        <span>
+          <Text type="secondary" style={{ fontSize: 11, display: "block" }}>
+            {r.imagingSummary || r.modality || "—"}
+          </Text>
+          <Space size={4}>
+            <ImagingViewButton patient={r} onView={setViewPatient} />
+            {r.hasAnnotatedImage ? (
+              <Tag color="blue" style={{ fontSize: 10, margin: 0 }}>
+                分割
+              </Tag>
+            ) : null}
+          </Space>
+        </span>
+      ),
+    },
+    {
+      title: "随访",
+      dataIndex: "followUpStatus",
+      width: 80,
+      render: (v: string) => (v === "随访中" ? <Tag color="blue">{v}</Tag> : v || "—"),
+    },
+    { title: "入库", dataIndex: "enrolledAt", width: 96 },
+  ];
 
   return (
     <div className="pmp-section">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>
-          <TeamOutlined style={{ marginRight: 8, color: "#1677ff" }} />
-          患者数据库
-        </Title>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+        <div>
+          <Title level={4} style={{ margin: 0 }}>
+            <TeamOutlined style={{ marginRight: 8, color: "#1677ff" }} />
+            患者数据库
+          </Title>
+          <Paragraph type="secondary" style={{ marginBottom: 0, marginTop: 8, maxWidth: 720 }}>
+            统一病例表：含临床、病理分级、治疗/手术、PCI·CC 评分与影像查看。流程：工作台录入 → 智能分析 →
+            随访入队 → <Link to="/knowledge">科研延伸</Link>。
+          </Paragraph>
+        </div>
         <Space>
-          <Link to="/db/clinical">
-            <Button size="small" type="primary" ghost icon={<UploadOutlined />}>
-              导入临床 Excel
+          <Link to="/workflow">
+            <Button type="primary" icon={<ExperimentOutlined />}>
+              新建分析
             </Button>
           </Link>
-          <Button size="small" onClick={fetchPatients}>
-            刷新
-          </Button>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            含队列筛选 · 智能分析完成后自动入库
-          </Text>
+          <Button onClick={() => void fetchPatients()}>刷新</Button>
         </Space>
       </div>
 
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="Excel 式病例总表"
+        description="点击「病理分级」列头下拉筛选；「影像」列可查看 DICOM 与 AI 分割图。"
+      />
+
       <div className="pmp-card" style={{ padding: 16, marginBottom: 16 }}>
-        <Space wrap>
+        <Space wrap size="large">
           <div className="pmp-stat-inline">
             <Text type="secondary">病例总数</Text>
-            <div className="pmp-stat-inline-value">{rows.length} 例</div>
+            <div className="pmp-stat-inline-value">{stats.total} 例</div>
           </div>
           <div className="pmp-stat-inline">
-            <Text type="secondary">当前队列</Text>
-            <div className="pmp-stat-inline-value" style={{ color: "#1677ff", fontSize: 15 }}>
-              {filtered.length} 例
+            <Text type="secondary">高级别</Text>
+            <div className="pmp-stat-inline-value" style={{ color: "#cf1322" }}>
+              {stats.high} 例
+            </div>
+          </div>
+          <div className="pmp-stat-inline">
+            <Text type="secondary">低级别</Text>
+            <div className="pmp-stat-inline-value" style={{ color: "#389e0d" }}>
+              {stats.low} 例
             </div>
           </div>
           <div className="pmp-stat-inline">
             <Text type="secondary">随访中</Text>
-            <div className="pmp-stat-inline-value">
-              {rows.filter((r) => r.followUpStatus === "随访中").length} 例
-            </div>
+            <div className="pmp-stat-inline-value">{stats.follow} 例</div>
           </div>
         </Space>
       </div>
 
       <div className="pmp-card" style={{ padding: 16 }}>
         <Space wrap style={{ marginBottom: 16 }}>
-          <Text type="secondary">队列</Text>
-          <AutoComplete
-            style={{ width: 260 }}
-            value={cohort}
-            options={COHORT_PRESETS.map((v) => ({ value: v }))}
-            onChange={setCohort}
-            placeholder="选择或输入队列条件，如：高级别亚组"
-            filterOption={(input, option) =>
-              (option?.value as string).toLowerCase().includes(input.toLowerCase())
-            }
-          />
           <Input.Search
-            placeholder="搜索 ID / 姓名 / 诊断"
+            placeholder="搜索 ID / 姓名 / 诊断 / 治疗方式 / PCI…"
             allowClear
-            style={{ width: 240 }}
+            style={{ width: 320 }}
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
           />
-          <Button icon={<DatabaseOutlined />} onClick={() => message.info("导出病例列表（演示）")}>
-            导出
+          <Select
+            value={followUpOnly ? "follow" : "all"}
+            style={{ width: 140 }}
+            onChange={(v) => setFollowUpOnly(v === "follow")}
+            options={[
+              { value: "all", label: "全部患者" },
+              { value: "follow", label: "仅随访队列" },
+            ]}
+          />
+          <Button icon={<DatabaseOutlined />} onClick={() => message.info("导出功能开发中")}>
+            导出 Excel
           </Button>
         </Space>
+
         {loading ? (
           <div style={{ textAlign: "center", padding: 32 }}>
             <Spin />
@@ -170,41 +261,15 @@ export default function PlatformPatientDbPage() {
           <Table
             size="small"
             rowKey="id"
-            dataSource={filtered}
-            pagination={{ pageSize: 8 }}
-            columns={[
-              { title: "患者 ID", dataIndex: "id", width: 130 },
-              { title: "姓名", dataIndex: "name", width: 88 },
-              {
-                title: "基本信息",
-                width: 120,
-                render: (_, r) => `${r.gender} · ${r.age}岁`,
-              },
-              { title: "诊断", dataIndex: "diagnosis", ellipsis: true },
-              {
-                title: "病理分级",
-                dataIndex: "gradeLabel",
-                width: 88,
-                render: (v: string) =>
-                  v === "高级别" ? <Tag color="red">{v}</Tag> : v === "低级别" ? <Tag color="green">{v}</Tag> : v,
-              },
-              { title: "分期", dataIndex: "stage", width: 72 },
-              {
-                title: "随访",
-                dataIndex: "followUpStatus",
-                width: 88,
-                render: (v: string) => (v === "随访中" ? <Tag color="blue">{v}</Tag> : v),
-              },
-              { title: "入库时间", dataIndex: "enrolledAt", width: 100 },
-              {
-                title: "状态",
-                width: 88,
-                render: () => <Tag color="green">已入库</Tag>,
-              },
-            ]}
+            dataSource={rows}
+            columns={columns}
+            scroll={{ x: 1500 }}
+            pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ["10", "20", "50"] }}
           />
         )}
       </div>
+
+      <PatientImagingModal open={Boolean(viewPatient)} patient={viewPatient} onClose={() => setViewPatient(null)} />
     </div>
   );
 }

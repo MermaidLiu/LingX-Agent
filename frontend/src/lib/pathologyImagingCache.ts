@@ -3,6 +3,7 @@
 const DB_NAME = "pmp_pathology_cache";
 const STORE = "images";
 const DB_VERSION = 1;
+const FP_PREFIX = "fp:";
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -18,13 +19,17 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-export async function cachePathologyImage(examId: string, base64: string): Promise<void> {
-  if (!examId || !base64) return;
+export function fingerprintImageKey(fingerprint: string): string {
+  return `${FP_PREFIX}${fingerprint}`;
+}
+
+export async function cachePathologyImage(key: string, base64: string): Promise<void> {
+  if (!key || !base64) return;
   try {
     const db = await openDb();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).put(base64, examId);
+      tx.objectStore(STORE).put(base64, key);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -34,13 +39,13 @@ export async function cachePathologyImage(examId: string, base64: string): Promi
   }
 }
 
-export async function loadPathologyImage(examId: string): Promise<string | null> {
-  if (!examId) return null;
+export async function loadPathologyImage(key: string): Promise<string | null> {
+  if (!key) return null;
   try {
     const db = await openDb();
     const value = await new Promise<string | null>((resolve, reject) => {
       const tx = db.transaction(STORE, "readonly");
-      const req = tx.objectStore(STORE).get(examId);
+      const req = tx.objectStore(STORE).get(key);
       req.onsuccess = () => resolve((req.result as string | undefined) ?? null);
       req.onerror = () => reject(req.error);
     });

@@ -1,5 +1,8 @@
 import { api, type PetCtInterviewRecord } from "./client";
 
+/** CT 合并接口（分割+PCI），同学侧约 5 分钟；经本地上传+转发会略长 */
+export const PATHOLOGY_GRADE_TIMEOUT_MS = 900_000;
+
 export type DiagnosisProbability = { label: string; pct: number };
 
 export type PlatformDiagnosis = {
@@ -31,6 +34,18 @@ export type PlatformPatient = {
   admissionTime: string;
   gradeLabel?: string;
   followUpStatus?: string;
+  examId?: string;
+  clinicalSummary?: string;
+  pathologySummary?: string;
+  imagingSummary?: string;
+  pciScore?: number | null;
+  hasAnnotatedImage?: boolean;
+  modality?: string;
+  dicomCount?: number;
+  treatmentMethod?: string;
+  surgeryNumber?: string;
+  ivChemotherapy?: string;
+  ccScore?: string;
 };
 
 export type PlatformImagingRecord = {
@@ -118,6 +133,7 @@ export type PciScoreResult = {
   regions: PciRegionScore[];
   slice_scores?: PciSliceScore[];
   conclusion?: string;
+  report_image_base64?: string;
   dcm_path_used?: string;
   raw?: Record<string, unknown>;
 };
@@ -201,10 +217,16 @@ export async function platformChatSave(record: PetCtInterviewRecord) {
   return data;
 }
 
-export async function platformListPatients(keyword = "") {
-  const { data } = await api.get<PlatformPatient[]>("/api/v1/platform/patients", {
-    params: keyword ? { keyword } : {},
-  });
+export async function platformListPatients(opts?: {
+  keyword?: string;
+  gradeLabel?: string;
+  followUp?: boolean;
+}) {
+  const params: Record<string, string | boolean> = {};
+  if (opts?.keyword?.trim()) params.keyword = opts.keyword.trim();
+  if (opts?.gradeLabel && opts.gradeLabel !== "全部") params.grade_label = opts.gradeLabel;
+  if (opts?.followUp) params.follow_up = true;
+  const { data } = await api.get<PlatformPatient[]>("/api/v1/platform/patients", { params });
   return data;
 }
 
@@ -265,25 +287,35 @@ export async function platformRadiomicsRun(
     task_title: string;
   }>("/api/v1/platform/research/radiomics-run", form, {
     headers: { "Content-Type": "multipart/form-data" },
-    timeout: 480000,
+    timeout: PATHOLOGY_GRADE_TIMEOUT_MS,
   });
   return data;
 }
 
 export async function platformPathologyGrade(
   files: File[],
-  opts?: { returnBase64?: boolean; saveToDb?: boolean; saveAnnotationDataset?: boolean; runPci?: boolean; dcmPath?: string },
+  opts?: {
+    returnBase64?: boolean;
+    saveToDb?: boolean;
+    saveAnnotationDataset?: boolean;
+    runPci?: boolean;
+    dcmPath?: string;
+    useCache?: boolean;
+    forceRefresh?: boolean;
+  },
 ) {
   const form = new FormData();
   files.forEach((f) => form.append("files", f));
   form.append("returnBase64", String(opts?.returnBase64 ?? true));
   form.append("save_to_db", String(opts?.saveToDb ?? false));
-  form.append("save_annotation_dataset", String(opts?.saveAnnotationDataset ?? true));
+  form.append("save_annotation_dataset", String(opts?.saveAnnotationDataset ?? false));
   form.append("run_pci", String(opts?.runPci ?? true));
+  form.append("use_cache", String(opts?.useCache ?? true));
+  form.append("force_refresh", String(opts?.forceRefresh ?? false));
   if (opts?.dcmPath?.trim()) form.append("dcm_path", opts.dcmPath.trim());
   const { data } = await api.post<PathologyImagingGradeResult>("/api/v1/platform/pathology/grade", form, {
     headers: { "Content-Type": "multipart/form-data" },
-    timeout: 480000,
+    timeout: PATHOLOGY_GRADE_TIMEOUT_MS,
   });
   return data;
 }
@@ -405,6 +437,32 @@ export async function platformSavePathologyAnalysis(
     "/api/v1/platform/pathology/save",
     { result, uploaded_file_names: uploadedFileNames },
   );
+  return data;
+}
+
+export type CarePathwayAnalyzeResult = {
+  imaging_report: string;
+  api_conclusion: string;
+  inferred_diagnosis: string;
+  treatment: {
+    recommendations: string[];
+    grade_label: string;
+    mdt_recommended: boolean;
+    guideline_refs: string[];
+    llm_used?: boolean;
+    llm_model?: string;
+  };
+  literature: Array<{ title: string; journal: string; year: string; pmid: string }>;
+};
+
+export async function platformCarePathwayAnalyze(
+  imaging: PathologyImagingGradeResult,
+  record: PetCtInterviewRecord,
+) {
+  const { data } = await api.post<CarePathwayAnalyzeResult>("/api/v1/platform/care-pathway/analyze", {
+    imaging,
+    record,
+  });
   return data;
 }
 

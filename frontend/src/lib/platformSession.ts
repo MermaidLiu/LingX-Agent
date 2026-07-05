@@ -1,6 +1,6 @@
 import type { ChatAnalyzeResult, PathologyImagingGradeResult, PlatformDiagnosis } from "../api/platform";
 import type { PetCtInterviewRecord } from "../api/client";
-import { cachePathologyImage, clearPathologyImageCache, loadPathologyImage } from "./pathologyImagingCache";
+import { cachePathologyImage, clearPathologyImageCache, fingerprintImageKey, loadPathologyImage } from "./pathologyImagingCache";
 
 const SESSION_KEY = "pmp_platform_session";
 
@@ -14,6 +14,7 @@ export type PlatformSession = {
   savedExamId: string | null;
   pathologyImaging: PathologyImagingGradeResult | null;
   uploadedFileNames: string[];
+  uploadedFileFingerprint: string;
   updatedAt: string;
 };
 
@@ -24,6 +25,7 @@ const EMPTY: PlatformSession = {
   savedExamId: null,
   pathologyImaging: null,
   uploadedFileNames: [],
+  uploadedFileFingerprint: "",
   updatedAt: "",
 };
 
@@ -59,12 +61,14 @@ export function slimPathologyImaging(
   };
 }
 
-function rememberPathologyResult(result: PathologyImagingGradeResult) {
+function rememberPathologyResult(result: PathologyImagingGradeResult, fileFingerprint = "") {
   pathologyImagingFull = result;
-  const examId = result.exam_id || loadPlatformSession().savedExamId;
-  if (examId && result.result_image_base64) {
-    void cachePathologyImage(examId, result.result_image_base64);
-  }
+  const session = loadPlatformSession();
+  const examId = result.exam_id || session.savedExamId;
+  const fp = fileFingerprint || session.uploadedFileFingerprint;
+  if (!result.result_image_base64) return;
+  if (examId) void cachePathologyImage(examId, result.result_image_base64);
+  if (fp) void cachePathologyImage(fingerprintImageKey(fp), result.result_image_base64);
 }
 
 export function loadPlatformSession(): PlatformSession {
@@ -109,7 +113,7 @@ export function savePlatformSession(partial: Partial<PlatformSession>) {
 
 export function setAnalysisResult(result: ChatAnalyzeResult) {
   if (result.pathology_imaging) {
-    rememberPathologyResult(result.pathology_imaging);
+    rememberPathologyResult(result.pathology_imaging, loadPlatformSession().uploadedFileFingerprint);
   }
   savePlatformSession({
     diagnosis: result.diagnosis,
@@ -120,11 +124,16 @@ export function setAnalysisResult(result: ChatAnalyzeResult) {
   });
 }
 
-export function setPathologyImagingResult(result: PathologyImagingGradeResult, fileNames: string[] = []) {
-  rememberPathologyResult(result);
+export function setPathologyImagingResult(
+  result: PathologyImagingGradeResult,
+  fileNames: string[] = [],
+  fileFingerprint = "",
+) {
+  rememberPathologyResult(result, fileFingerprint);
   savePlatformSession({
     pathologyImaging: result,
     uploadedFileNames: fileNames,
+    uploadedFileFingerprint: fileFingerprint,
     savedExamId: result.exam_id || null,
   });
 }
@@ -157,11 +166,19 @@ export async function hydratePathologyImagingResult(
   result: PathologyImagingGradeResult | null,
 ): Promise<PathologyImagingGradeResult | null> {
   if (!result || result.result_image_base64) return result;
-  const examId = result.exam_id || loadPlatformSession().savedExamId;
-  if (!examId) return result;
-  const cached = await loadPathologyImage(examId);
-  if (!cached) return result;
-  const hydrated = { ...result, result_image_base64: cached };
-  pathologyImagingFull = hydrated;
-  return hydrated;
+  const session = loadPlatformSession();
+  const keys = [
+    result.exam_id,
+    session.savedExamId,
+    session.uploadedFileFingerprint ? fingerprintImageKey(session.uploadedFileFingerprint) : "",
+  ].filter(Boolean) as string[];
+  for (const key of keys) {
+    const cached = await loadPathologyImage(key);
+    if (cached) {
+      const hydrated = { ...result, result_image_base64: cached };
+      pathologyImagingFull = hydrated;
+      return hydrated;
+    }
+  }
+  return result;
 }

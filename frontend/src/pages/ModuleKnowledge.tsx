@@ -12,7 +12,7 @@ export default function ModuleKnowledge() {
   const [correlation, setCorrelation] = useState<ClinicalCorrelationResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [indicatorText, setIndicatorText] = useState(
-    "Ki-67: 35%\nCA125: 186 U/mL\nSUVmax: 6.8\nHER2: 阴性",
+    "Ki-67: 35%\nCEA: 12.4 ng/mL\nCA125: 186 U/mL\nCA19-9: 45 U/mL\nSUVmax: 6.8",
   );
   const [diseaseContext, setDiseaseContext] = useState("卵巢肿瘤 · 高级别浆液性癌待排");
 

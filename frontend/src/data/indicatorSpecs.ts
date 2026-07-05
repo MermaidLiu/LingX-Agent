@@ -9,8 +9,9 @@ export const CLINICAL_INDICATOR_SPECS: Record<string, IndicatorSpec> = {
   性别: { type: "select", options: ["男", "女"] },
   "TNM 分期": { type: "text", placeholder: "如 cT2N1M0" },
   肿瘤大小: { type: "number", placeholder: "cm", unit: "cm" },
-  "Ki-67": { type: "number", placeholder: "%", unit: "%" },
   CEA: { type: "number", placeholder: "ng/mL", unit: "ng/mL" },
+  CA125: { type: "number", placeholder: "U/mL", unit: "U/mL" },
+  "CA19-9": { type: "number", placeholder: "U/mL", unit: "U/mL" },
   淋巴结转移: { type: "select", options: ["是", "否", "未知"] },
   治疗方案: { type: "text", placeholder: "如 手术+化疗" },
   "OS / PFS": { type: "text", placeholder: "如 OS 24月 / PFS 18月" },
@@ -33,7 +34,7 @@ export const IMAGING_INDICATOR_SPECS: Record<string, IndicatorSpec> = {
 
 export const MULTIMODAL_INDICATOR_SPECS: Record<string, IndicatorSpec> = {
   临床变量: { type: "text", placeholder: "年龄、分期等" },
-  病理变量: { type: "text", placeholder: "分级、Ki-67 等" },
+  病理变量: { type: "text", placeholder: "分级、分化程度等" },
   影像特征: { type: "text", placeholder: "Radiomics 特征集" },
   "WSI 特征": { type: "text", placeholder: "病理组学特征" },
   基因分型: { type: "select", options: ["EGFR+", "KRAS+", "野生型", "未知"] },
