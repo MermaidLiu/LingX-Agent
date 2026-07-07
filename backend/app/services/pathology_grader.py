@@ -217,6 +217,19 @@ def _infer_grade_from_text(*texts: str) -> tuple[str, float, list[str]]:
     return "未确定", 0.45, evidence or ["文本中未检出明确分级关键词，需结合免疫组化与病理切片"]
 
 
+def infer_histologic_grade_label(*texts: str) -> str:
+    """从 API 结论/报告文本推断病理分级（高级别/低级别）。PCI 总分不代表组织学分级。"""
+    for raw in texts:
+        s = str(raw or "").strip()
+        if s in ("高级别", "低级别", "未确定"):
+            return s
+    combined = " ".join(str(t) for t in texts if t and str(t).strip())
+    if not combined.strip():
+        return "未确定"
+    grade, _, _ = _infer_grade_from_text(combined)
+    return grade
+
+
 def _suv_grade_hint(suv_max: float | None) -> str:
     if suv_max is None:
         return ""

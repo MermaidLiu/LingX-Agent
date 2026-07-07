@@ -42,7 +42,6 @@ const MENU: MenuItem[] = [
     children: [
       { key: "/db/patients", label: "患者数据库", path: "/db/patients" },
       { key: "/db/follow-up", label: "随访队列", path: "/db/follow-up" },
-      { key: "/db/clinical", label: "临床数据集（科研）", path: "/db/clinical" },
     ],
   },
   {

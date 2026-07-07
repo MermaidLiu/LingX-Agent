@@ -1,11 +1,74 @@
-import { BarChartOutlined, DatabaseOutlined, FilePptOutlined, LineChartOutlined, ReadOutlined } from "@ant-design/icons";
-import { Button, Col, Row, Tag, Typography } from "antd";
+import {
+  ExperimentOutlined,
+  FilePptOutlined,
+  FileSearchOutlined,
+  LineChartOutlined,
+  MergeCellsOutlined,
+  ReadOutlined,
+} from "@ant-design/icons";
+import { Button, Col, Row, Space, Tag, Typography } from "antd";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import WorkflowContextBanner from "../../components/platform/WorkflowContextBanner";
+import ResearchBatchImportPanel from "../../components/platform/ResearchBatchImportPanel";
+import { loadResearchBatchContext } from "../../lib/researchBatchContext";
+import { FOLLOWUP_BATCH_IMPORTED_EVENT, loadFollowUpBatch, type FollowUpBatchState } from "../../lib/followUpBatchStore";
 
 const { Title, Paragraph } = Typography;
 
+const MODULES = [
+  {
+    key: "clinical",
+    path: "/knowledge/data/clinical",
+    title: "临床及病理数据分析",
+    desc: "病理分级相关因素、生存分析、预后模型与机器学习。",
+    tags: ["结构化数据", "生存分析", "机器学习"],
+    theme: "navy" as const,
+    icon: <FileSearchOutlined style={{ fontSize: 28 }} />,
+  },
+  {
+    key: "imaging",
+    path: "/knowledge/data/imaging",
+    title: "影像数据智能分析",
+    desc: "基于预勾画 NIfTI / 标注图进行 Radiomics 特征建模。",
+    tags: ["影像组学", "特征筛选", "深度学习"],
+    theme: "cyan" as const,
+    icon: <ExperimentOutlined style={{ fontSize: 28 }} />,
+  },
+  {
+    key: "multimodal",
+    path: "/knowledge/data/multimodal",
+    title: "多模态联合分析",
+    desc: "融合临床、病理与影像组学，构建联合模型。",
+    tags: ["联合建模", "风险分层", "贡献度"],
+    theme: "purple" as const,
+    icon: <MergeCellsOutlined style={{ fontSize: 28 }} />,
+  },
+];
+
 export default function PlatformResearchExtensionPage() {
+  const [batch, setBatch] = useState<FollowUpBatchState | null>(() => loadFollowUpBatch());
+  const [ready, setReady] = useState(
+    () =>
+      Boolean(loadFollowUpBatch()?.cases.length) ||
+      Boolean(loadResearchBatchContext()?.clinical.length),
+  );
+
+  useEffect(() => {
+    function refresh() {
+      const b = loadFollowUpBatch();
+      setBatch(b);
+      setReady(
+        Boolean(b?.cases.length) || Boolean(loadResearchBatchContext()?.clinical.length),
+      );
+    }
+    window.addEventListener(FOLLOWUP_BATCH_IMPORTED_EVENT, refresh);
+    refresh();
+    return () => window.removeEventListener(FOLLOWUP_BATCH_IMPORTED_EVENT, refresh);
+  }, []);
+
+  const clinicalN = batch?.cases.length ?? loadResearchBatchContext()?.clinical.length ?? 0;
+  const imagingN = batch?.matchedCount ?? loadResearchBatchContext()?.imaging.length ?? 0;
+
   return (
     <div className="pmp-section">
       <Title level={4} style={{ marginBottom: 4 }}>
@@ -13,65 +76,88 @@ export default function PlatformResearchExtensionPage() {
         AI 多模态科研智能体
       </Title>
       <Paragraph type="secondary" style={{ marginBottom: 8 }}>
-        基于工作台病例、智能分析与数据库的串联科研入口
+        上传 ZIP + Excel 导入队列，或从患者数据库多选病例进入；导入后直接在下方选择分析模块。
       </Paragraph>
       <Tag color="green" style={{ marginBottom: 16 }}>
         已连接：多模态科研数据库
       </Tag>
 
-      <WorkflowContextBanner />
+      <ResearchBatchImportPanel
+        variant="research"
+        onImported={() => {
+          setBatch(loadFollowUpBatch());
+          setReady(true);
+        }}
+      />
 
-      <Row gutter={[24, 24]}>
-        <Col xs={24} md={8}>
-          <div className="pmp-entry-card pmp-entry-card--data">
-            <BarChartOutlined style={{ fontSize: 36, color: "#1677ff", marginBottom: 12 }} />
-            <Title level={4}>数据分析</Title>
-            <Paragraph type="secondary">
-              临床 · 影像组学（标注图建模）· 多模态联合分析。
-            </Paragraph>
-            <Link to="/knowledge/data">
-              <Button type="primary" size="large" block>
-                进入数据分析
-              </Button>
-            </Link>
+      {ready ? (
+        <>
+          {clinicalN > 0 ? (
+            <Space style={{ marginBottom: 12 }}>
+              <Tag color="blue">{clinicalN} 例临床</Tag>
+              {imagingN > 0 ? <Tag color="cyan">{imagingN} 例预勾画影像</Tag> : null}
+            </Space>
+          ) : null}
+          <div className="pmp-module-cards">
+            {MODULES.map((m) => (
+              <div key={m.key} className={`pmp-module-card pmp-module-card--${m.theme}`}>
+                <div className="pmp-module-card-icon">{m.icon}</div>
+                <Title level={5} style={{ margin: "12px 0 8px", color: "#fff" }}>
+                  {m.title}
+                </Title>
+                <Paragraph style={{ color: "rgba(255,255,255,0.85)", fontSize: 13, minHeight: 48 }}>
+                  {m.desc}
+                </Paragraph>
+                <Space wrap size={[4, 4]} style={{ marginBottom: 16 }}>
+                  {m.tags.map((t) => (
+                    <Tag key={t} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff" }}>
+                      {t}
+                    </Tag>
+                  ))}
+                </Space>
+                <Link to={m.path}>
+                  <Button type="default" ghost block>
+                    进入模块
+                    {m.key === "clinical" && clinicalN > 0 ? `（${clinicalN} 例）` : ""}
+                    {m.key === "imaging" && imagingN > 0 ? `（${imagingN} 例）` : ""}
+                  </Button>
+                </Link>
+              </div>
+            ))}
           </div>
-        </Col>
-        <Col xs={24} md={8}>
-          <div className="pmp-entry-card pmp-entry-card--lib">
-            <ReadOutlined style={{ fontSize: 36, color: "#7c3aed", marginBottom: 12 }} />
-            <Title level={4}>科研选题</Title>
-            <Paragraph type="secondary">
-              基于组学结果生成论文题目：区分市面已有研究与创新空白方向。
-            </Paragraph>
+        </>
+      ) : (
+        <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 24 }}>
+          导入数据后，或从患者数据库多选病例后，将在此显示临床 / 影像 / 多模态三个分析模块。
+        </Paragraph>
+      )}
+
+      <Row gutter={[16, 16]} style={{ marginTop: 24 }}>
+        <Col xs={24} sm={12}>
+          <div className="pmp-card" style={{ padding: 16, textAlign: "center" }}>
+            <ReadOutlined style={{ fontSize: 28, color: "#7c3aed", marginBottom: 8 }} />
+            <Title level={5} style={{ marginBottom: 8 }}>
+              科研选题
+            </Title>
             <Link to="/knowledge/publications">
-              <Button size="large" block style={{ borderColor: "#7c3aed", color: "#7c3aed" }}>
+              <Button block style={{ borderColor: "#7c3aed", color: "#7c3aed" }}>
                 论文选题
               </Button>
             </Link>
           </div>
         </Col>
-        <Col xs={24} md={8}>
-          <div className="pmp-entry-card pmp-entry-card--lib">
-            <FilePptOutlined style={{ fontSize: 36, color: "#0891b2", marginBottom: 12 }} />
-            <Title level={4}>PPT 生成</Title>
-            <Paragraph type="secondary">
-              领导汇报 / 学术分享 / 政府汇报 · 可上传模板自动填充内容。
-            </Paragraph>
+        <Col xs={24} sm={12}>
+          <div className="pmp-card" style={{ padding: 16, textAlign: "center" }}>
+            <FilePptOutlined style={{ fontSize: 28, color: "#0891b2", marginBottom: 8 }} />
+            <Title level={5} style={{ marginBottom: 8 }}>
+              PPT 生成
+            </Title>
             <Link to="/knowledge/ppt">
-              <Button size="large" block>
-                生成 PPT
-              </Button>
+              <Button block>生成 PPT</Button>
             </Link>
           </div>
         </Col>
       </Row>
-
-      <div className="pmp-card" style={{ padding: 16, marginTop: 24 }}>
-        <DatabaseOutlined style={{ color: "#1677ff", marginRight: 8 }} />
-        <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-          完整流程：工作台上传 → 智能分析（标注图+评分）→ 加入病理库/影像库 → 科研延伸（组学建模 → 论文选题 → PPT）
-        </Typography.Text>
-      </div>
     </div>
   );
 }

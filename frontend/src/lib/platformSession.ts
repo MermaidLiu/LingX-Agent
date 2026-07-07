@@ -36,12 +36,22 @@ export function slimPathologyImaging(
   if (!result) return null;
   const raw = result.raw;
   const slimRaw =
-    raw && (raw.pci || raw.pci_paths_tried || raw.sessionId || raw.selected_slice_filename)
+    raw &&
+    (raw.pci ||
+      raw.pci_paths_tried ||
+      raw.sessionId ||
+      raw.selected_slice_filename ||
+      raw.slice_manifest ||
+      raw.fingerprint)
       ? {
           pci: raw.pci,
           pci_paths_tried: raw.pci_paths_tried,
           sessionId: raw.sessionId,
           selected_slice_filename: raw.selected_slice_filename,
+          selected_slice_index: raw.selected_slice_index,
+          fingerprint: raw.fingerprint,
+          slice_manifest: raw.slice_manifest,
+          slice_count: raw.slice_count,
         }
       : undefined;
   return {

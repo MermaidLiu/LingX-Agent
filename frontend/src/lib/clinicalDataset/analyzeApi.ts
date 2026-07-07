@@ -12,6 +12,8 @@ export type AnalyzeKind =
   | "logistic"
   | "survival"
   | "cox"
+  | "markov"
+  | "arimax"
   | "ml";
 
 export type AnalyzeParams = {
@@ -29,6 +31,14 @@ export type AnalyzeParams = {
   feature_vars?: string[];
   ml_model?: string;
   test_size?: number;
+  p_threshold?: number;
+  selection_method?: string;
+  univariate_screen?: boolean;
+  filter_criteria?: Record<string, string[]>;
+  patient_id_field?: string;
+  from_state_var?: string;
+  state_var?: string;
+  arima_order?: number[];
 };
 
 function datasetPayload(ds: ClinicalDataset) {

@@ -2,16 +2,18 @@ import { ExperimentOutlined, FileSearchOutlined, MergeCellsOutlined, ReadOutline
 import { Button, Space, Tag, Typography } from "antd";
 import { Link } from "react-router-dom";
 import WorkflowContextBanner from "../../components/platform/WorkflowContextBanner";
+import { loadResearchBatchContext } from "../../lib/researchBatchContext";
+import { loadFollowUpBatch } from "../../lib/followUpBatchStore";
 
 const { Title, Paragraph, Text } = Typography;
 
 const MODULES = [
   {
     key: "clinical",
-    path: "/db/clinical",
-    title: "临床数据集 · Excel 导入",
-    desc: "按两行表头 Excel 导入患者信息、影像/病理文件关联，进入数据处理、基础/高级统计与机器学习流程。",
-    tags: ["Excel 导入", "变量管理", "基础统计", "机器学习"],
+    path: "/knowledge/data/clinical",
+    title: "临床及病理数据分析",
+    desc: "面向临床、病理、随访等结构化数据，用于病理分级相关因素、生存分析、预后模型等任务。",
+    tags: ["结构化数据", "生存分析", "预后模型", "机器学习"],
     theme: "navy" as const,
     icon: <FileSearchOutlined style={{ fontSize: 28 }} />,
   },
@@ -36,16 +38,28 @@ const MODULES = [
 ];
 
 export default function PlatformResearchDataHubPage() {
+  const ctx = loadResearchBatchContext();
+  const batch = loadFollowUpBatch();
+  const clinicalN = ctx?.clinical.length ?? batch?.cases.length ?? 0;
+  const imagingN = ctx?.imaging.length ?? batch?.matchedCount ?? 0;
+
   return (
     <div className="pmp-section">
       <Space style={{ marginBottom: 8 }}>
         <Tag color="green">已连接：多模态科研数据库</Tag>
+        {clinicalN > 0 ? (
+          <Tag color="blue">
+            当前队列 {clinicalN} 例{imagingN > 0 ? ` · ${imagingN} 例影像` : ""}
+          </Tag>
+        ) : null}
       </Space>
       <Title level={4} style={{ marginBottom: 4 }}>
         请选择分析模块
       </Title>
       <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-        首页保留三个入口，点击后进入对应的独立分析工作台（自动关联工作台病例与智能分析结果）
+        {ctx || batch
+          ? "以下模块将基于刚导入 / 选中的批量数据运行分析。"
+          : "首页保留三个入口；也可返回科研延伸首页上传 ZIP+Excel，或从患者数据库多选进入。"}
       </Paragraph>
 
       <WorkflowContextBanner compact />
@@ -70,6 +84,8 @@ export default function PlatformResearchDataHubPage() {
             <Link to={m.path}>
               <Button type="default" ghost block>
                 进入模块
+                {m.key === "clinical" && clinicalN > 0 ? `（${clinicalN} 例）` : ""}
+                {m.key === "imaging" && imagingN > 0 ? `（${imagingN} 例）` : ""}
               </Button>
             </Link>
           </div>

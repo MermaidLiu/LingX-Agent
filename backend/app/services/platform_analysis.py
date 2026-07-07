@@ -148,11 +148,22 @@ def _apply_pathology_imaging_to_record(
 ) -> PetCtInterviewRecord:
     if imaging_result.get("status") not in ("ok",):
         return record
-    grade = str(imaging_result.get("grade_label") or "").strip()
-    if not grade and not imaging_result.get("confidence"):
+    from app.services.pathology_grader import infer_histologic_grade_label
+
+    pci_block = imaging_result.get("pci")
+    if not isinstance(pci_block, dict):
+        raw = imaging_result.get("raw") if isinstance(imaging_result.get("raw"), dict) else {}
+        pci_block = raw.get("pci") if isinstance(raw.get("pci"), dict) else {}
+    pci_conclusion = str((pci_block or {}).get("conclusion") or "")
+    grade = infer_histologic_grade_label(
+        pci_conclusion,
+        str(imaging_result.get("message") or ""),
+        str(imaging_result.get("grade_label") or ""),
+    )
+    if grade == "未确定" and not imaging_result.get("confidence"):
         return record
     rx = record.research_extensions.model_copy(deep=True)
-    if grade:
+    if grade in ("高级别", "低级别", "未确定"):
         rx.pathology_grade = grade
     conf = imaging_result.get("confidence")
     if conf is not None:

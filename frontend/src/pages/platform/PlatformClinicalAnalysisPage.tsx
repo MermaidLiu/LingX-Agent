@@ -1,47 +1,111 @@
-import ResearchWorkbench from "../../components/platform/ResearchWorkbench";
-import { CLINICAL_INDICATOR_SPECS } from "../../data/indicatorSpecs";
+import { Spin } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import { platformListPatients } from "../../api/platform";
+import ClinicalAnalysisWorkbench from "../../components/platform/clinicalDataset/ClinicalAnalysisWorkbench";
+import { buildClinicalDatasetFromFollowUpCases } from "../../lib/clinicalDataset/buildFromFollowUpCases";
 import {
-  CLINICAL_FIELDS,
-  CLINICAL_METHODS,
-  CLINICAL_RESULTS,
-  CLINICAL_TASKS,
-} from "../../data/researchWorkbenchMock";
+  buildCohortFromBatchRefs,
+  buildCohortFromPatients,
+  buildDemoPmpCohort,
+  RESEARCH_COHORT_DATASET_ID,
+} from "../../lib/clinicalDataset/patientCohortDataset";
+import { getClinicalDataset, saveClinicalDataset } from "../../lib/clinicalDataset/store";
+import { consumeBatchSelection } from "../../lib/platformBatchSelection";
+import { getResearchBatchPatients, loadResearchBatchContext } from "../../lib/researchBatchContext";
+import { loadFollowUpBatch } from "../../lib/followUpBatchStore";
 
 export default function PlatformClinicalAnalysisPage() {
+  const researchClinical = useMemo(() => getResearchBatchPatients("clinical"), []);
+  const batch = useMemo(() => {
+    if (researchClinical.length) return { patients: researchClinical };
+    return consumeBatchSelection("clinical");
+  }, [researchClinical]);
+  const [ready, setReady] = useState(false);
+  const [batchCount, setBatchCount] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function bootstrap() {
+      const ctx = loadResearchBatchContext();
+      const followUpBatch = loadFollowUpBatch();
+      let existing = getClinicalDataset(RESEARCH_COHORT_DATASET_ID);
+
+      if (batch?.patients.length && ctx?.source === "patient_db") {
+        try {
+          const all = await platformListPatients({});
+          const ids = new Set(batch.patients.map((p) => p.id));
+          const selected = all.filter((p) => ids.has(p.id));
+          const payload =
+            selected.length > 0
+              ? buildCohortFromPatients(selected, `患者库批次（${selected.length} 例）`)
+              : buildCohortFromBatchRefs(batch.patients, `患者库批次（${batch.patients.length} 例）`);
+          saveClinicalDataset({ ...payload, id: RESEARCH_COHORT_DATASET_ID });
+          if (!cancelled) {
+            setBatchCount(selected.length || batch.patients.length);
+            setReady(true);
+          }
+          return;
+        } catch {
+          const payload = buildCohortFromBatchRefs(
+            batch.patients,
+            `患者库批次（${batch.patients.length} 例）`,
+          );
+          saveClinicalDataset({ ...payload, id: RESEARCH_COHORT_DATASET_ID });
+          if (!cancelled) {
+            setBatchCount(batch.patients.length);
+            setReady(true);
+          }
+          return;
+        }
+      }
+
+      if (!existing?.rows.length && followUpBatch?.cases.length) {
+        saveClinicalDataset({
+          ...buildClinicalDatasetFromFollowUpCases(
+            followUpBatch.cases,
+            `随访批量 · ${followUpBatch.excelFileName}`,
+          ),
+          id: RESEARCH_COHORT_DATASET_ID,
+        });
+        existing = getClinicalDataset(RESEARCH_COHORT_DATASET_ID);
+      }
+
+      if (!existing) {
+        saveClinicalDataset({ ...buildDemoPmpCohort(), id: RESEARCH_COHORT_DATASET_ID });
+        existing = getClinicalDataset(RESEARCH_COHORT_DATASET_ID);
+      }
+
+      if (!cancelled) {
+        const n =
+          existing?.rows.length ||
+          ctx?.clinical.length ||
+          followUpBatch?.cases.length ||
+          0;
+        setBatchCount(n);
+        setReady(true);
+      }
+    }
+
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, [batch]);
+
+  if (!ready) {
+    return (
+      <div className="pmp-section" style={{ textAlign: "center", padding: 48 }}>
+        <Spin tip="加载临床数据…" />
+      </div>
+    );
+  }
+
   return (
-    <ResearchWorkbench
-      moduleKey="clinical"
-      title="临床及病理数据分析工作台"
-      subtitle="面向临床、病理、随访等结构化数据，用于病理分级相关因素、生存分析、预后模型等任务。"
-      badge="模块一：临床及病理数据分析"
-      theme="navy"
-      dataTitle="数据与变量"
-      fields={CLINICAL_FIELDS}
-      tasks={CLINICAL_TASKS}
-      methods={CLINICAL_METHODS}
-      resultMap={CLINICAL_RESULTS}
-      indicatorSpecs={CLINICAL_INDICATOR_SPECS}
-      enablePathologyPlatform
-      stats={[
-        { label: "病例数", value: "12,846" },
-        { label: "变量数", value: "68" },
-        { label: "缺失率", value: "6.2%" },
-        { label: "C-index", value: "0.74" },
-      ]}
-      outputs={[
-        "统计分析报告",
-        "Table 1 基线特征",
-        "单/多因素回归表",
-        "KM 曲线",
-        "Nomogram",
-        "论文结果段落",
-      ]}
-      followUps={[
-        "哪些因素是独立危险因素？",
-        "帮我画 KM 曲线",
-        "生成 Table 1",
-        "把结果写成论文结果段",
-      ]}
+    <ClinicalAnalysisWorkbench
+      datasetId={RESEARCH_COHORT_DATASET_ID}
+      batchCount={batchCount}
+      defaultTab="advanced"
     />
   );
 }

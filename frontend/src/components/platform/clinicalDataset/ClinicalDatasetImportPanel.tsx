@@ -47,7 +47,7 @@ export default function ClinicalDatasetImportPanel({ onImported }: Props) {
     <div className="pmp-card pmp-clinical-import" style={{ padding: 20 }}>
       <div className="pmp-panel-title">临床数据导入</div>
       <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 16 }}>
-        线下准备 Excel：第 1 行为类型（患者 ID / 患者信息 / 影像文件 / 病理文件等），第 2 行为变量名；一行一患者，患者 ID 不可重复。
+        支持两种格式：① 两行表头（第 1 行类型 + 第 2 行变量名）；② 单行表头（如 临床资料.xls：第 1 行 ID/姓名/…，第 2 行起为数据）。
         文件列可在 {"{}"} 内设置关联键（患者ID / 检查号 / 文件名），上传后平台自动关联已入库影像/病理。
       </Paragraph>
 
@@ -102,7 +102,7 @@ export default function ClinicalDatasetImportPanel({ onImported }: Props) {
           <InboxOutlined />
         </p>
         <p className="ant-upload-text">点击或拖拽 Excel 文件到此处上传</p>
-        <p className="ant-upload-hint">支持 .xlsx / .xls · 按模板两行表头格式</p>
+        <p className="ant-upload-hint">支持 .xlsx / .xls · 两行表头或单行表头（含 ID 列）</p>
       </Dragger>
 
       {lastWarnings.length ? (

@@ -1,6 +1,8 @@
 import { LinkOutlined } from "@ant-design/icons";
 import { Alert, Space, Tag } from "antd";
 import { Link } from "react-router-dom";
+import { loadFollowUpBatch } from "../../lib/followUpBatchStore";
+import { loadResearchBatchContext } from "../../lib/researchBatchContext";
 import { getWorkflowContext } from "../../lib/workflowContext";
 
 type Props = {
@@ -9,8 +11,10 @@ type Props = {
 
 export default function WorkflowContextBanner({ compact = false }: Props) {
   const ctx = getWorkflowContext();
+  const batch = loadFollowUpBatch();
+  const researchCtx = loadResearchBatchContext();
 
-  if (!ctx.hasCaseFiles && !ctx.hasPathologyResult && !ctx.diagnosis) {
+  if (!ctx.hasCaseFiles && !ctx.hasPathologyResult && !ctx.diagnosis && !batch && !researchCtx) {
     return (
       <Alert
         type="info"
@@ -33,9 +37,27 @@ export default function WorkflowContextBanner({ compact = false }: Props) {
       showIcon
       icon={<LinkOutlined />}
       style={{ marginBottom: compact ? 12 : 16 }}
-      message="已串联工作台工作流数据"
+      message={researchCtx || batch ? "已串联批量科研数据" : "已串联工作台工作流数据"}
       description={
         <Space direction="vertical" size={4} style={{ width: "100%" }}>
+          {researchCtx ? (
+            <span>
+              <Tag color="purple">科研队列</Tag>
+              {researchCtx.label}
+              {" · "}
+              <Link to="/knowledge/data">数据分析</Link>
+            </span>
+          ) : null}
+          {batch && !researchCtx ? (
+            <span>
+              <Tag color="cyan">随访批量</Tag>
+              {batch.cases.length} 例临床 · {batch.matchedCount} 例已关联预勾画 NIfTI
+              {" · "}
+              <Link to="/knowledge/data/clinical">临床分析</Link>
+              {" · "}
+              <Link to="/db/imaging">影像库</Link>
+            </span>
+          ) : null}
           {ctx.uploadedFileNames.length > 0 ? (
             <span>
               <Tag>病例文件 {ctx.uploadedFileNames.length} 个</Tag>

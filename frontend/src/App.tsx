@@ -3,7 +3,6 @@ import PlatformLayout from "./layouts/PlatformLayout";
 import BasicLayout from "./layouts/BasicLayout";
 import DashboardHome from "./pages/DashboardHome";
 import PlatformChatPage from "./pages/platform/PlatformChatPage";
-import PlatformClinicalDatasetPage from "./pages/platform/PlatformClinicalDatasetPage";
 import PlatformClinicalAnalysisPage from "./pages/platform/PlatformClinicalAnalysisPage";
 import PlatformDiagnosisPage from "./pages/platform/PlatformDiagnosisPage";
 import PlatformImagingAnalysisPage from "./pages/platform/PlatformImagingAnalysisPage";
@@ -35,8 +34,8 @@ export default function App() {
         <Route index element={<PlatformChatPage />} />
         <Route path="workflow" element={<PlatformWorkflowPage />} />
         <Route path="db/patients" element={<PlatformPatientDbPage />} />
-        <Route path="db/clinical" element={<PlatformClinicalDatasetPage />} />
-        <Route path="db/clinical/:id" element={<PlatformClinicalDatasetPage />} />
+        <Route path="db/clinical" element={<Navigate to="/knowledge/data/clinical" replace />} />
+        <Route path="db/clinical/:id" element={<Navigate to="/knowledge/data/clinical" replace />} />
         <Route path="db/imaging" element={<Navigate to="/db/patients" replace />} />
         <Route path="db/pathology" element={<Navigate to="/db/patients" replace />} />
         <Route path="db/follow-up" element={<PlatformFollowUpPage />} />

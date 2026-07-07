@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -65,7 +65,12 @@ from app.services.pci_scoring_client import (
     try_parse_pci_from_ct_slices,
     try_parse_pci_from_manifest,
 )
-from app.services.care_pathway_llm import analyze_care_pathway
+from app.services.pathology_slice_store import (
+    build_slice_manifest,
+    get_slice_image_bytes,
+    load_slice_manifest,
+    save_slice_store,
+)
 from app.services.platform_analysis import analyze_chat_uploads
 from app.services.platform_knowledge import generate_document, search_knowledge
 from app.services.platform_research import run_research_task
@@ -229,7 +234,13 @@ async def platform_pathology_grade(
             if "缓存" not in msg:
                 cached["message"] = "已使用缓存结果"
             if isinstance(cached.get("raw"), dict):
-                cached["raw"] = {**cached["raw"], "cache_hit": True, "fingerprint": fingerprint[:16]}
+                raw_enriched = {**cached["raw"], "cache_hit": True, "fingerprint": fingerprint}
+                if not raw_enriched.get("slice_manifest"):
+                    disk_manifest = load_slice_manifest(fingerprint)
+                    if disk_manifest:
+                        raw_enriched["slice_manifest"] = disk_manifest
+                        raw_enriched["slice_count"] = len(disk_manifest)
+                cached["raw"] = raw_enriched
             return PathologyImagingGradeResult.model_validate(cached)
 
     raw = await predict_grade_from_imaging(file_items, return_base64=return_base64, run_pci=run_pci)
@@ -313,6 +324,19 @@ async def platform_pathology_grade(
             "ct_api": round(t_ct - t_fp, 2),
             "total": round(t_ct - t_start, 2),
         }
+        raw_payload["fingerprint"] = fingerprint
+        if raw.get("status") == "ok":
+            if isinstance(api_payload, dict):
+                manifest = build_slice_manifest(api_payload)
+                if manifest:
+                    raw_payload["slice_manifest"] = manifest
+                    raw_payload["slice_count"] = len(manifest)
+                    background_tasks.add_task(save_slice_store, fingerprint, api_payload)
+            elif not raw_payload.get("slice_manifest"):
+                disk_manifest = load_slice_manifest(fingerprint)
+                if disk_manifest:
+                    raw_payload["slice_manifest"] = disk_manifest
+                    raw_payload["slice_count"] = len(disk_manifest)
 
     response = PathologyImagingGradeResult(
         status=str(raw.get("status", "")),
@@ -395,6 +419,17 @@ async def platform_pathology_pci_retry(body: dict[str, Any]) -> PciScoreResult:
     return PciScoreResult.model_validate(result)
 
 
+@router.get("/pathology/slices/{fingerprint}/{index}")
+def platform_pathology_slice_image(fingerprint: str, index: int) -> Response:
+    """Return one annotated slice PNG for left/right browsing in the diagnosis UI."""
+    if index < 0 or index > 5000:
+        raise HTTPException(status_code=400, detail="无效的切片序号")
+    data = get_slice_image_bytes(fingerprint, index)
+    if not data:
+        raise HTTPException(status_code=404, detail="切片图像尚未就绪，请稍候或重新分析")
+    return Response(content=data, media_type="image/png")
+
+
 @router.get("/pathology/annotation-datasets", response_model=list[AnnotationDatasetSummary])
 def platform_list_annotation_datasets() -> list[AnnotationDatasetSummary]:
     return [AnnotationDatasetSummary.model_validate(x) for x in list_annotation_datasets()]
@@ -445,6 +480,8 @@ def platform_list_pathology(keyword: str = "", db: Session = Depends(get_db)) ->
 @router.post("/care-pathway/analyze", response_model=CarePathwayAnalyzeResponse)
 async def platform_care_pathway_analyze(body: CarePathwayAnalyzeBody) -> CarePathwayAnalyzeResponse:
     """Imaging report from CT API conclusion; treatment suggestions via DeepSeek."""
+    from app.services.care_pathway_llm import analyze_care_pathway
+
     raw = await analyze_care_pathway(body.imaging, body.record)
     treatment = raw.get("treatment") or {}
     return CarePathwayAnalyzeResponse(

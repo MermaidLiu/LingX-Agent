@@ -3,6 +3,8 @@ import { Empty, Modal, Spin, Tabs, Typography } from "antd";
 import { useEffect, useState } from "react";
 import type { PlatformPatient } from "../../api/platform";
 import ImagingViewer from "./ImagingViewer";
+import { NiiSliceViewer } from "./NiiSliceViewer";
+import { getFollowUpBatchCase } from "../../lib/followUpBatchStore";
 import { imageSrcFromBase64, hasAnnotatedImage } from "../../lib/pathologyImage";
 import { loadPathologyImage } from "../../lib/pathologyImagingCache";
 
@@ -38,6 +40,8 @@ export default function PatientImagingModal({ open, patient, onClose }: Props) {
 
   if (!patient) return null;
 
+  const batchCase = getFollowUpBatchCase(patient.id) || getFollowUpBatchCase(patient.admissionId || "");
+
   const metaLines = [
     patient.gradeLabel && patient.gradeLabel !== "—" ? `病理分级：${patient.gradeLabel}` : "",
     patient.treatmentMethod && patient.treatmentMethod !== "—" ? `治疗方式：${patient.treatmentMethod}` : "",
@@ -61,8 +65,14 @@ export default function PatientImagingModal({ open, patient, onClose }: Props) {
     },
     {
       key: "seg",
-      label: "AI 分割",
-      children: loadingImage ? (
+      label: batchCase?.niiVolumeId ? "预勾画 NIfTI" : "AI 分割",
+      children: batchCase?.niiVolumeId ? (
+        <NiiSliceViewer
+          volumeId={batchCase.niiVolumeId}
+          backgroundVolumeId={batchCase.ctVolumeId}
+          title={batchCase.niiFileName || ""}
+        />
+      ) : loadingImage ? (
         <div style={{ textAlign: "center", padding: 48 }}>
           <Spin tip="加载分割图…" />
         </div>

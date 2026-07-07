@@ -3,6 +3,7 @@ import { App, Button, Empty, Select, Space, Spin, Table, Tag, Typography } from 
 import { useMemo, useState } from "react";
 import type { ClinicalAnalyzeResult } from "../../../api/platform";
 import { runClinicalAnalysis } from "../../../lib/clinicalDataset/analyzeApi";
+import { excelHeaderOptions } from "../../../lib/clinicalDataset/variableOptions";
 import type { ClinicalDataset } from "../../../lib/clinicalDataset/types";
 
 const { Text, Paragraph } = Typography;
@@ -29,17 +30,7 @@ export default function ClinicalDatasetBasicStatsTab({ dataset }: Props) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ClinicalAnalyzeResult | null>(null);
 
-  const varOptions = dataset.variables
-    .filter((v) => !v.skipped && v.type !== "file")
-    .map((v) => ({ value: v.name, label: v.name }));
-
-  const catOptions = dataset.variables
-    .filter((v) => (v.type === "categorical" || v.type === "text") && !v.skipped)
-    .map((v) => ({ value: v.name, label: v.name }));
-
-  const numericOptions = dataset.variables
-    .filter((v) => v.type === "numerical" && !v.skipped)
-    .map((v) => ({ value: v.name, label: v.name }));
+  const headerOptions = excelHeaderOptions(dataset);
 
   const rocCurve = useMemo(() => {
     const pts = (result?.extra?.curve as { fpr: number; tpr: number }[]) ?? [];
@@ -121,7 +112,7 @@ export default function ClinicalDatasetBasicStatsTab({ dataset }: Props) {
               placeholder="请选择"
               value={selectedVars}
               onChange={setSelectedVars}
-              options={varOptions}
+              options={headerOptions}
             />
           </div>
           {(tool === "sig" || tool === "desc") && (
@@ -138,7 +129,7 @@ export default function ClinicalDatasetBasicStatsTab({ dataset }: Props) {
                 placeholder="请选择"
                 value={splitVar}
                 onChange={setSplitVar}
-                options={catOptions}
+                options={headerOptions}
               />
             </div>
           )}
@@ -153,7 +144,7 @@ export default function ClinicalDatasetBasicStatsTab({ dataset }: Props) {
                   placeholder="请选择"
                   value={outcomeVar}
                   onChange={setOutcomeVar}
-                  options={catOptions}
+                  options={headerOptions}
                 />
               </div>
               <div style={{ marginBottom: 12 }}>
@@ -165,7 +156,7 @@ export default function ClinicalDatasetBasicStatsTab({ dataset }: Props) {
                   placeholder="请选择"
                   value={predictor}
                   onChange={setPredictor}
-                  options={numericOptions}
+                  options={headerOptions}
                 />
               </div>
             </>

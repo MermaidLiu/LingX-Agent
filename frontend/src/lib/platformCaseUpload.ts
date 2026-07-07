@@ -1,6 +1,33 @@
 import type { UploadFile } from "antd/es/upload/interface";
+import { resolveCaseUpload, type ResolvedCaseUpload } from "./resolveCaseUpload";
 
 let pendingFiles: File[] = [];
+let resolvedUpload: ResolvedCaseUpload | null = null;
+let resolving: Promise<ResolvedCaseUpload | null> | null = null;
+
+async function refreshResolved(): Promise<ResolvedCaseUpload | null> {
+  if (!pendingFiles.length) {
+    resolvedUpload = null;
+    return null;
+  }
+  resolvedUpload = await resolveCaseUpload(pendingFiles);
+  return resolvedUpload;
+}
+
+export async function ensureResolvedUpload(): Promise<ResolvedCaseUpload | null> {
+  if (!pendingFiles.length) return null;
+  if (resolvedUpload) return resolvedUpload;
+  if (!resolving) {
+    resolving = refreshResolved().finally(() => {
+      resolving = null;
+    });
+  }
+  return resolving;
+}
+
+export function getResolvedUploadSync(): ResolvedCaseUpload | null {
+  return resolvedUpload;
+}
 
 export function toNativeFiles(list: UploadFile[] | File[]): File[] {
   return list.map((f) => {
@@ -19,6 +46,8 @@ export function setPendingCaseFiles(files: File[] | UploadFile[]) {
     seen.add(key);
     return true;
   });
+  resolvedUpload = null;
+  if (pendingFiles.length) void refreshResolved();
 }
 
 export function getPendingCaseFiles(): File[] {
@@ -52,6 +81,17 @@ export function pendingCaseFilesChanged(storedNames: string[], storedFingerprint
 
 export function clearPendingCaseFiles() {
   pendingFiles = [];
+  resolvedUpload = null;
+}
+
+export function hasPendingImagingFiles(): boolean {
+  if (resolvedUpload) {
+    return resolvedUpload.hasDicom;
+  }
+  return pendingFiles.some((f) => {
+    const lower = f.name.toLowerCase();
+    return lower.endsWith(".dcm") || lower.endsWith(".dicom") || lower.endsWith(".zip");
+  });
 }
 
 /** Convert native File list to Ant Design UploadFile for composer UI. */
@@ -80,6 +120,7 @@ export function mergeAnalysisFiles(extra: File[] = []): File[] {
 
 /** DICOM / ZIP files from the workbench for imaging tasks. */
 export function getPendingDicomFiles(): File[] {
+  if (resolvedUpload?.dicomFiles.length) return [...resolvedUpload.dicomFiles];
   return pendingFiles.filter((f) => {
     const lower = f.name.toLowerCase();
     return lower.endsWith(".dcm") || lower.endsWith(".dicom") || lower.endsWith(".zip");

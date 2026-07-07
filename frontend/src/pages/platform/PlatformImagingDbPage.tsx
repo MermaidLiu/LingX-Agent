@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { platformListImaging, type PlatformImagingRecord } from "../../api/platform";
 import { DatabasePageShell, DbTitle, StatusTag } from "../../components/platform/DatabasePageShell";
 import ImagingViewer from "../../components/platform/ImagingViewer";
+import { NiiSliceViewer } from "../../components/platform/NiiSliceViewer";
+import { listFollowUpBatchImaging } from "../../lib/followUpBatchImport";
+import { getFollowUpBatchCase } from "../../lib/followUpBatchStore";
 import { hasAnnotatedImage, imageSrcFromBase64 } from "../../lib/pathologyImage";
 import { loadPathologyImage } from "../../lib/pathologyImagingCache";
 
@@ -28,9 +31,12 @@ export default function PlatformImagingDbPage() {
     setLoading(true);
     try {
       const rows = await platformListImaging();
-      setData(rows);
+      const batchRows = listFollowUpBatchImaging();
+      const ids = new Set(rows.map((r) => r.id));
+      const merged = [...batchRows.filter((r) => !ids.has(r.id)), ...rows];
+      setData(merged);
     } catch {
-      setData([]);
+      setData(listFollowUpBatchImaging());
     } finally {
       setLoading(false);
     }
@@ -134,16 +140,28 @@ export default function PlatformImagingDbPage() {
             items={[
               {
                 key: "annotated",
-                label: "标注图",
-                children: hasAnnotatedImage(annotatedB64 || undefined) ? (
-                  <img
-                    src={imageSrcFromBase64(annotatedB64!)}
-                    alt="AI 标注病灶图"
-                    style={{ maxWidth: "100%", borderRadius: 8, border: "1px solid #e8edf5", background: "#0a0a0a" }}
-                  />
-                ) : (
-                  <Paragraph type="secondary">暂无标注图</Paragraph>
-                ),
+                label: getFollowUpBatchCase(detail.id)?.niiVolumeId ? "预勾画 NIfTI" : "标注图",
+                children: (() => {
+                  const batchCase = getFollowUpBatchCase(detail.id);
+                  if (batchCase?.niiVolumeId) {
+                    return (
+                      <NiiSliceViewer
+                        volumeId={batchCase.niiVolumeId}
+                        backgroundVolumeId={batchCase.ctVolumeId}
+                        title={batchCase.niiFileName || ""}
+                      />
+                    );
+                  }
+                  return hasAnnotatedImage(annotatedB64 || undefined) ? (
+                    <img
+                      src={imageSrcFromBase64(annotatedB64!)}
+                      alt="AI 标注病灶图"
+                      style={{ maxWidth: "100%", borderRadius: 8, border: "1px solid #e8edf5", background: "#0a0a0a" }}
+                    />
+                  ) : (
+                    <Paragraph type="secondary">暂无标注图</Paragraph>
+                  );
+                })(),
               },
               {
                 key: "viewer",

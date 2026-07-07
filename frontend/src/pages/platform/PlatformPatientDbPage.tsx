@@ -1,10 +1,14 @@
-import { DatabaseOutlined, ExperimentOutlined, MessageOutlined, TeamOutlined } from "@ant-design/icons";
-import { App, Alert, Button, Input, Select, Space, Spin, Table, Tag, Typography } from "antd";
-import type { ColumnsType } from "antd/es/table";
+import { DatabaseOutlined, DownOutlined, ExperimentOutlined, TeamOutlined } from "@ant-design/icons";
+import { App, Alert, Button, Dropdown, Input, Select, Space, Spin, Table, Tag, Typography } from "antd";
+import type { ColumnsType, TableRowSelection } from "antd/es/table/interface";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { platformListPatients, type PlatformPatient } from "../../api/platform";
 import PatientImagingModal, { ImagingViewButton } from "../../components/platform/PatientImagingModal";
+import { saveBatchSelection, type BatchOperationIntent } from "../../lib/platformBatchSelection";
+import { activateResearchFromPatients } from "../../lib/researchBatchContext";
+import { batchCasesToPlatformPatients, loadFollowUpBatch } from "../../lib/followUpBatchStore";
+import { loadPatients } from "../../lib/platformPatients";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -28,12 +32,14 @@ function cell(v?: string | null) {
 
 export default function PlatformPatientDbPage() {
   const { message } = App.useApp();
+  const navigate = useNavigate();
   const [keyword, setKeyword] = useState("");
   const [gradeFilter, setGradeFilter] = useState("全部");
   const [followUpOnly, setFollowUpOnly] = useState(false);
   const [rows, setRows] = useState<PlatformPatient[]>([]);
   const [loading, setLoading] = useState(true);
   const [viewPatient, setViewPatient] = useState<PlatformPatient | null>(null);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
 
   const fetchPatients = useCallback(async () => {
     setLoading(true);
@@ -43,9 +49,19 @@ export default function PlatformPatientDbPage() {
         gradeLabel: gradeFilter,
         followUp: followUpOnly,
       });
-      setRows(data);
+      const batch = loadFollowUpBatch();
+      if (batch?.cases.length) {
+        const map = new Map(data.map((p) => [p.id, p]));
+        for (const p of batchCasesToPlatformPatients(batch.cases)) {
+          if (!map.has(p.id)) map.set(p.id, p);
+        }
+        setRows(Array.from(map.values()));
+      } else {
+        setRows(data);
+      }
     } catch {
-      message.error("加载患者数据库失败，请确认后端已启动");
+      setRows(loadPatients());
+      message.error("加载患者数据库失败，已显示本地缓存");
     } finally {
       setLoading(false);
     }
@@ -65,6 +81,77 @@ export default function PlatformPatientDbPage() {
     }),
     [rows],
   );
+
+  const selectedPatients = useMemo(
+    () => rows.filter((r) => selectedRowKeys.includes(r.id)),
+    [rows, selectedRowKeys],
+  );
+
+  const rowSelection: TableRowSelection<PlatformPatient> = {
+    selectedRowKeys,
+    onChange: (keys) => setSelectedRowKeys(keys as string[]),
+    columnWidth: 48,
+    fixed: "left",
+  };
+
+  function resolveBatchPatients(): PlatformPatient[] {
+    if (selectedPatients.length) return selectedPatients;
+    message.warning("请先勾选至少一名患者");
+    return [];
+  }
+
+  function runBatchOperation(intent: BatchOperationIntent) {
+    const patients = resolveBatchPatients();
+    if (!patients.length) return;
+    if (intent === "radiomics") {
+      const withImage = patients.filter((p) => p.hasAnnotatedImage);
+      if (!withImage.length) {
+        message.warning("所选患者暂无 AI 分割标注图，请先在智能分析完成 DICOM 分析并入库");
+        return;
+      }
+      saveBatchSelection(withImage, intent);
+      activateResearchFromPatients(withImage, "patient_db", intent);
+      navigate("/knowledge/data/imaging");
+      return;
+    }
+    saveBatchSelection(patients, intent);
+    activateResearchFromPatients(patients, "patient_db", intent);
+    navigate("/knowledge/data/clinical");
+  }
+
+  function exportSelectedRows() {
+    const exportRows = selectedPatients.length ? selectedPatients : rows;
+    if (!exportRows.length) {
+      message.info("没有可导出的记录");
+      return;
+    }
+    const header = ["患者ID", "姓名", "性别", "年龄", "诊断", "病理分级", "PCI", "CC评分", "治疗方式", "随访"];
+    const lines = exportRows.map((r) =>
+      [
+        r.id,
+        r.name,
+        r.gender,
+        r.age,
+        r.diagnosis,
+        r.gradeLabel || "",
+        r.pciScore != null ? `${r.pciScore}/36` : "",
+        r.ccScore || "",
+        r.treatmentMethod || "",
+        r.followUpStatus || "",
+      ]
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .join(","),
+    );
+    const csv = `\uFEFF${header.join(",")}\n${lines.join("\n")}`;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `患者数据库_${exportRows.length}例.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    message.success(`已导出 ${exportRows.length} 例${selectedPatients.length ? "（已选）" : ""}`);
+  }
 
   const columns: ColumnsType<PlatformPatient> = [
     { title: "患者 ID", dataIndex: "id", width: 120, fixed: "left" },
@@ -248,9 +335,46 @@ export default function PlatformPatientDbPage() {
               { value: "follow", label: "仅随访队列" },
             ]}
           />
-          <Button icon={<DatabaseOutlined />} onClick={() => message.info("导出功能开发中")}>
-            导出 Excel
+          <Button icon={<DatabaseOutlined />} onClick={exportSelectedRows}>
+            批量导出
           </Button>
+          <Dropdown
+            menu={{
+              items: [
+                {
+                  key: "radiomics",
+                  label: (
+                    <div>
+                      <div>提取组学</div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                        跳转至影像数据智能分析，基于标注图建模
+                      </div>
+                    </div>
+                  ),
+                  onClick: () => runBatchOperation("radiomics"),
+                },
+                {
+                  key: "clinical",
+                  label: (
+                    <div>
+                      <div>临床及病理数据分析</div>
+                      <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+                        面向临床、病理、随访等结构化数据，用于病理分级相关因素、生存分析、预后模型等任务
+                      </div>
+                    </div>
+                  ),
+                  onClick: () => runBatchOperation("clinical"),
+                },
+              ],
+            }}
+          >
+            <Button>
+              批量操作 <DownOutlined />
+            </Button>
+          </Dropdown>
+          {selectedRowKeys.length ? (
+            <Tag color="blue">已选 {selectedRowKeys.length} 例</Tag>
+          ) : null}
         </Space>
 
         {loading ? (
@@ -261,6 +385,7 @@ export default function PlatformPatientDbPage() {
           <Table
             size="small"
             rowKey="id"
+            rowSelection={rowSelection}
             dataSource={rows}
             columns={columns}
             scroll={{ x: 1500 }}

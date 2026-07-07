@@ -178,17 +178,17 @@ def _lab_clinical_summary(lab: dict[str, Any]) -> str:
     return " · ".join(parts) if parts else ""
 
 
-def _normalize_grade_label(grade: str, pci_score: int | None) -> str:
+def _normalize_grade_label(grade: str, pci_score: int | None, narrative: str = "") -> str:
+    from app.services.pathology_grader import infer_histologic_grade_label
+
     g = (grade or "").strip()
     if g in ("高级别", "低级别", "未确定"):
         return g
-    if g.upper().startswith("PCI") or pci_score is not None:
-        if pci_score is not None:
-            if pci_score >= 20:
-                return "高级别"
-            if pci_score <= 10:
-                return "低级别"
-        return "未确定"
+    inferred = infer_histologic_grade_label(g, narrative)
+    if inferred in ("高级别", "低级别"):
+        return inferred
+    if g.upper().startswith("PCI"):
+        return inferred if inferred != "未确定" else "—"
     return g or "—"
 
 
@@ -212,7 +212,7 @@ def record_to_patient_row(record: PetCtInterviewRecord, row_id: str | None = Non
     grade_raw = rx.pathology_grade or "—"
     narrative = rx.pet_ct_report_narrative or rx.imaging_report_text or ""
     pci_score = _extract_pci_score(narrative) or _extract_pci_score(grade_raw)
-    grade = _normalize_grade_label(grade_raw, pci_score)
+    grade = _normalize_grade_label(grade_raw, pci_score, narrative)
 
     lab = rx.lab_snapshot or {}
     lab_txt = _lab_clinical_summary(lab)

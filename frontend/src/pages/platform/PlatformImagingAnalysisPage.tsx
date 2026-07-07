@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import ResearchWorkbench from "../../components/platform/ResearchWorkbench";
 import { IMAGING_INDICATOR_SPECS } from "../../data/indicatorSpecs";
 import {
@@ -6,15 +7,33 @@ import {
   IMAGING_RESULTS,
   IMAGING_TASKS,
 } from "../../data/researchWorkbenchMock";
+import { consumeBatchSelection } from "../../lib/platformBatchSelection";
+import { getResearchBatchPatients } from "../../lib/researchBatchContext";
 import { getPathologyImagingOrNull } from "../../lib/platformSession";
 
 export default function PlatformImagingAnalysisPage() {
-  const pathology = getPathologyImagingOrNull();
+  const batch = useMemo(() => {
+    const fromResearch = getResearchBatchPatients("imaging");
+    if (fromResearch.length) return { patients: fromResearch };
+    return consumeBatchSelection("radiomics");
+  }, []);
+
+  const batchPatients = batch?.patients ?? [];
+  const batchHasPresegRoi = batchPatients.some((p) => p.niiVolumeId);
+  const pathology = batchHasPresegRoi ? null : getPathologyImagingOrNull();
+
+  const pathologyGrade =
+    batchPatients.find((p) => p.gradeLabel)?.gradeLabel ?? pathology?.grade_label;
+
   return (
     <ResearchWorkbench
       moduleKey="imaging"
       title="影像数据智能分析工作台"
-      subtitle="基于智能分析标注病灶图进行 Radiomics 特征建模与预测。"
+      subtitle={
+        batchHasPresegRoi
+          ? "批量预勾画 ROI 模式：跳过智能分析接口，直接进行 Radiomics 特征建模。"
+          : "基于 DICOM 分割或智能分析标注图进行 Radiomics 特征建模与预测。"
+      }
       badge="模块二：影像数据智能分析"
       theme="cyan"
       dataTitle="影像与标注"
@@ -23,8 +42,11 @@ export default function PlatformImagingAnalysisPage() {
       methods={IMAGING_METHODS}
       resultMap={IMAGING_RESULTS}
       indicatorSpecs={IMAGING_INDICATOR_SPECS}
+      initialTaskId={batch ? "radiomics" : undefined}
+      batchPatients={batchPatients}
+      batchRoiMode={batchHasPresegRoi}
       radiomicsAnnotatedImage={pathology?.result_image_base64}
-      radiomicsPathologyGrade={pathology?.grade_label}
+      radiomicsPathologyGrade={pathologyGrade}
       stats={[
         { label: "影像数", value: "76,300" },
         { label: "配对病例", value: "9,420" },

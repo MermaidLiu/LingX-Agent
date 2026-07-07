@@ -6,6 +6,8 @@ import { platformSavePathologyAnalysis, platformDownloadAnnotationDataset } from
 import type { PathologyImagingGradeResult, PciScoreResult } from "../../api/platform";
 import { saveCase } from "../../api/client";
 import { CarePathwayPanel } from "../../components/platform/CarePathwayPanel";
+import { AnnotationSliceViewer } from "../../components/platform/AnnotationSliceViewer";
+import { NiiSliceViewer } from "../../components/platform/NiiSliceViewer";
 import { addToFollowUpQueue, isInFollowUpQueue } from "../../lib/followUpQueue";
 import {
   buildPathologyAnalysisStub,
@@ -17,6 +19,7 @@ import { getWorkflowCase, saveWorkflowCase } from "../../lib/workflowCase";
 import {
   getPathologyJobState,
   isPathologyJobRunning,
+  isPresegmentedResult,
   shouldAutoStartPathologyAnalysis,
   startPathologyAnalysis,
   subscribePathologyJob,
@@ -26,8 +29,10 @@ import {
   getPendingCaseFiles,
   getPendingCaseFileNames,
   hasPendingCaseFiles,
+  hasPendingImagingFiles,
   pendingCaseFilesChanged,
 } from "../../lib/platformCaseUpload";
+import { getPresegmentedNiiVolumeId } from "../../lib/presegmentedCase";
 import {
   getPathologyImagingOrNull,
   hasSuccessfulPathologyResult,
@@ -36,7 +41,7 @@ import {
   setPathologyImagingResult,
   markSaved,
 } from "../../lib/platformSession";
-import { hasAnnotatedImage, imageSrcFromBase64 } from "../../lib/pathologyImage";
+import { hasAnnotatedImage } from "../../lib/pathologyImage";
 import { buildPciConclusion, normalizePciRegions, pciRegionScoreTone, sumPciRegions } from "../../lib/pciRegions";
 
 const { Title, Paragraph, Text } = Typography;
@@ -287,11 +292,10 @@ function PathologyResultPanel({
   const isSkipped = result.status === "skipped";
   const pci = getPci(result);
   const fromCache = Boolean(result.raw?.cache_hit);
+  const presegmented = isPresegmentedResult(result);
+  const niiVolumeId =
+    (result.raw?.nii_volume_id as string | undefined) || getPresegmentedNiiVolumeId() || "";
   const messageParts = pci ? [] : splitMessageParts(result.message || "");
-  const selectedSlice =
-    result.raw && "selected_slice_filename" in result.raw
-      ? String((result.raw as Record<string, unknown>).selected_slice_filename)
-      : "";
 
   async function handleDownloadZip() {
     if (!result.annotation_dataset_id) return;
@@ -333,8 +337,15 @@ function PathologyResultPanel({
                 已使用缓存结果
               </Tag>
             ) : null}
+            {presegmented ? (
+              <Tag color="cyan" style={{ marginBottom: 8 }}>
+                预勾画 NIfTI · 未调用 CT 接口
+              </Tag>
+            ) : null}
             <Paragraph type="secondary" style={{ fontSize: 12, marginTop: -4, marginBottom: 12 }}>
-              CT 合并接口一次返回：分割勾画图（ctResults）+ PCI 报告（pci）。
+              {presegmented
+                ? "ZIP 内 .nii.gz 已在本地渲染；PCI / 病理结论来自临床 Excel（如有）。"
+                : "CT 合并接口一次返回：分割勾画图（ctResults）+ PCI 报告（pci）。"}
             </Paragraph>
             {isError ? (
               <Alert type="error" message={result.message || "影像诊断分析接口调用失败"} showIcon />
@@ -388,23 +399,17 @@ function PathologyResultPanel({
                 <div className="pmp-panel-title" style={{ marginBottom: 4 }}>
                   标注可视化
                 </div>
-                {selectedSlice ? (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    代表切片 {selectedSlice}
-                  </Text>
-                ) : null}
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {presegmented
+                    ? "↑ / ↓ 或键盘 ArrowUp / ArrowDown 翻阅 NIfTI 勾画轴位"
+                    : "左右箭头或键盘 ← → 翻阅全部标注切片（ctResults）"}
+                </Text>
               </div>
             </div>
-            {hasAnnotatedImage(result.result_image_base64) ? (
-              <div className="pmp-diagnosis-image-wrap">
-                <img src={imageSrcFromBase64(result.result_image_base64)} alt="CT 分割勾画图" />
-              </div>
-            ) : pci?.report_image_base64 && hasAnnotatedImage(pci.report_image_base64) ? (
-              <div className="pmp-diagnosis-image-wrap">
-                <img src={imageSrcFromBase64(pci.report_image_base64)} alt="PCI 报告图" />
-              </div>
+            {presegmented && niiVolumeId ? (
+              <NiiSliceViewer volumeId={niiVolumeId} />
             ) : (
-              <Empty description="合并接口未返回分割图" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              <AnnotationSliceViewer result={result} />
             )}
           </div>
         </Col>
@@ -628,7 +633,7 @@ export default function PlatformDiagnosisPage() {
     const files = getPendingCaseFiles();
     if (!files.length) {
       if (force) {
-        message.warning("请先在「工作台」上传含 DICOM 的病例文件（.dcm / .dicom / ZIP）");
+        message.warning("请先在「工作台」上传 DICOM/ZIP 或含 .nii.gz 的预勾画压缩包");
       }
       return;
     }
@@ -667,7 +672,7 @@ export default function PlatformDiagnosisPage() {
   }, [hydrating]);
 
   const hasResult = Boolean(result);
-  const showEmpty = !loading && !hydrating && !result && !hasPendingCaseFiles() && !hasSuccessfulPathologyResult();
+  const showEmpty = !loading && !hydrating && !result && !hasPendingImagingFiles() && !hasSuccessfulPathologyResult();
 
   return (
     <div className="pmp-section">
@@ -705,9 +710,6 @@ export default function PlatformDiagnosisPage() {
           >
             {hasResult ? "重新分析" : "开始分析"}
           </Button>
-          {hasResult ? (
-            <span style={{ fontSize: 12, color: "#888" }}>重新分析将忽略缓存并重新调用 CT 接口</span>
-          ) : null}
         </Space>
       </div>
 

@@ -12,11 +12,12 @@ import httpx
 from app.core.config import settings
 from app.models.domain import PetCtInterviewRecord
 from app.models.platform_schemas import PathologyImagingGradeResult
-from app.services.pathology_grader import _TREATMENT_BY_GRADE, recommend_literature
+from app.services.pathology_grader import _TREATMENT_BY_GRADE, infer_histologic_grade_label, recommend_literature
 
 logger = logging.getLogger(__name__)
 
 GUIDELINE_REFS = [
+    "UpToDate 临床决策",
     "中国肿瘤临床",
     "中华胃肠外科杂志",
     "消化肿瘤杂志（电子版）",
@@ -32,7 +33,7 @@ TREATMENT_SYSTEM_PROMPT = """你是腹膜假粘液瘤（PMP）及腹膜肿瘤多
    评估手术范围：低级别病变可考虑保留器官功能的保守性手术
    低级别浆液性癌/交界性肿瘤：以手术为主，化疗获益有限，需个体化评估
    定期随访：每 6 个月影像及标志物监测，关注进展为高级别的信号
-3. 参考中国肿瘤临床、中华胃肠外科杂志、消化肿瘤杂志（电子版）及 CSCO 原则，不要编造具体未提供的检验数值
+3. 参考 UpToDate 临床决策支持、中国肿瘤临床、中华胃肠外科杂志、消化肿瘤杂志（电子版）及 CSCO 原则；grade_label 必须与 api_conclusion 中的病理分级一致（PCI 总分不代表组织学分级），不要编造具体未提供的检验数值
 4. 不做最终临床决策；必要时提醒 MDT 讨论
 5. 仅输出 JSON：{"recommendations":["...","..."],"mdt_recommended":true/false,"grade_label":"高级别|低级别|未确定"}"""
 
@@ -73,32 +74,15 @@ def _api_conclusion(imaging: PathologyImagingGradeResult, pci: dict[str, Any]) -
 
 
 def _infer_grade(imaging: PathologyImagingGradeResult, pci: dict[str, Any], record: PetCtInterviewRecord) -> str:
-    gl = (imaging.grade_label or "").strip()
-    if gl in ("高级别", "低级别", "未确定"):
-        return gl
-    for source in (pci, record.research_extensions.model_dump(mode="json") if record.research_extensions else {}):
-        if not isinstance(source, dict):
-            continue
-        for key in ("pathologyGrade", "pathology_grade", "gradeLabel", "grade_label"):
-            val = str(source.get(key) or "").strip()
-            if "高" in val:
-                return "高级别"
-            if "低" in val:
-                return "低级别"
-    score = pci.get("pci_score")
-    if score is not None:
-        try:
-            s = int(score)
-            if s >= 20:
-                return "高级别"
-            if s <= 10:
-                return "低级别"
-        except (TypeError, ValueError):
-            pass
-    rx_grade = (record.research_extensions.pathology_grade or "").strip()
-    if rx_grade in ("高级别", "低级别", "未确定"):
-        return rx_grade
-    return "未确定"
+    conclusion = _api_conclusion(imaging, pci)
+    rx = record.research_extensions
+    return infer_histologic_grade_label(
+        conclusion,
+        str(pci.get("conclusion") or ""),
+        imaging.grade_label or "",
+        rx.pathology_grade if rx else "",
+        imaging.message or "",
+    )
 
 
 def build_imaging_report_text(
@@ -223,6 +207,8 @@ async def generate_treatment_recommendations(
         if not recs:
             recs = _parse_recommendation_lines(content)
         grade_out = str(parsed.get("grade_label") or grade_label).strip() or grade_label
+        if grade_label in ("高级别", "低级别"):
+            grade_out = grade_label
         mdt = bool(parsed.get("mdt_recommended", grade_out in ("高级别", "未确定")))
         if not recs:
             recs, mdt = _fallback_treatment(grade_out)

@@ -8,6 +8,24 @@ function getPci(imaging: PathologyImagingGradeResult): PciScoreResult | undefine
   return imaging.pci ?? (imaging.raw?.pci as PciScoreResult | undefined);
 }
 
+/** Infer histologic grade from API conclusion — PCI score is tumor burden, not grade. */
+export function inferHistologicGradeLabel(...texts: (string | undefined | null)[]): string {
+  for (const raw of texts) {
+    const s = String(raw || "").trim();
+    if (s === "高级别" || s === "低级别" || s === "未确定") return s;
+  }
+  const combined = texts.map((t) => String(t || "")).join(" ");
+  if (!combined.trim()) return "";
+  const low =
+    /低级别|低级|G1|高分化|交界性|LAMN|黏液性.*低/i.test(combined) &&
+    !/高级别|G3|低分化|未分化/i.test(combined);
+  const high = /高级别|G3|低分化|未分化|高级别浆液/i.test(combined);
+  if (low && !high) return "低级别";
+  if (high && !low) return "高级别";
+  if (low && high) return "未确定";
+  return "";
+}
+
 export type CarePathwayResult = {
   imaging_report: string;
   api_conclusion: string;
@@ -30,7 +48,6 @@ export function buildRecordForCarePathway(
 ): PetCtInterviewRecord {
   const base = getWorkflowCase();
   const pci = getPci(imaging);
-  const pciScore = pci?.pci_score ?? null;
   const pciConclusion = pci?.conclusion?.trim() || (pci ? buildPciConclusion(pci) : "");
 
   const resolvedExamId =
@@ -40,8 +57,9 @@ export function buildRecordForCarePathway(
     `CASE-${Date.now()}`;
 
   const gradeHint =
-    imaging.grade_label?.trim() ||
-    (pciScore != null && pciScore >= 20 ? "高级别" : pciScore != null && pciScore <= 10 ? "低级别" : "");
+    inferHistologicGradeLabel(pciConclusion, imaging.message, imaging.grade_label) ||
+    base.research_extensions?.pathology_grade ||
+    "";
 
   return {
     ...base,
@@ -85,7 +103,10 @@ export async function runCarePathwayAnalysis(
 
 /** Minimal PathologyAnalysisResult for follow-up queue enrollment. */
 export function buildPathologyAnalysisStub(care: CarePathwayResult): PathologyAnalysisResult {
-  const grade = care.treatment.grade_label || "未确定";
+  const grade =
+    inferHistologicGradeLabel(care.api_conclusion) ||
+    care.treatment.grade_label ||
+    "未确定";
   const composite =
     grade === "高级别" ? 72 : grade === "低级别" ? 28 : 50;
   return {

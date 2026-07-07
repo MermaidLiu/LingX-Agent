@@ -83,6 +83,186 @@ def _cat_cols(df: pd.DataFrame, variables: list[dict[str, str]], names: list[str
     return [c for c in df.columns if c in allowed]
 
 
+def _apply_filters(df: pd.DataFrame, filters: dict[str, list[str]] | None) -> pd.DataFrame:
+    if not filters:
+        return df
+    result = df
+    for var, values in filters.items():
+        if var not in result.columns or not values:
+            continue
+        allowed = {str(v).strip() for v in values if str(v).strip()}
+        if not allowed:
+            continue
+        result = result[result[var].astype(str).str.strip().isin(allowed)]
+    if result.empty:
+        raise ValueError("筛选后无有效样本，请放宽筛选条件")
+    return result
+
+
+def _filter_body_rows(body: dict[str, Any]) -> dict[str, Any]:
+    filters = body.get("filter_criteria") or {}
+    if not filters:
+        return body
+    rows = body.get("rows") or []
+    variables = body.get("variables") or []
+    df = _apply_filters(_build_frame(rows, variables), filters)
+    new_rows: list[dict[str, str]] = []
+    for _, row in df.iterrows():
+        new_rows.append({col: "" if pd.isna(row[col]) else str(row[col]).strip() for col in df.columns})
+    return {**body, "rows": new_rows}
+
+
+def _encode_predictors(x_df: pd.DataFrame) -> pd.DataFrame:
+    out = x_df.copy()
+    for col in out.columns:
+        if out[col].dtype == object:
+            out[col] = out[col].astype("category").cat.codes
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+    return out
+
+
+def _univariate_screen(
+    y: pd.Series,
+    x_df: pd.DataFrame,
+    p_threshold: float,
+    *,
+    binary_y: pd.Series | None = None,
+) -> list[str]:
+    selected: list[str] = []
+    for col in x_df.columns:
+        sub = pd.concat([y, x_df[col]], axis=1).dropna()
+        if len(sub) < 3:
+            continue
+        if binary_y is not None and sm is not None:
+            by = binary_y.loc[sub.index]
+            x = sm.add_constant(sub[col])
+            try:
+                model = sm.Logit(by, x).fit(disp=0)
+                p = float(model.pvalues.iloc[-1])
+            except Exception:
+                continue
+        elif sm is not None:
+            x = sm.add_constant(sub[col])
+            try:
+                model = sm.OLS(sub.iloc[:, 0], x).fit()
+                p = float(model.pvalues.iloc[-1])
+            except Exception:
+                continue
+        else:
+            continue
+        if p <= p_threshold:
+            selected.append(col)
+    return selected
+
+
+def _model_pvalues_ols(y: pd.Series, x_df: pd.DataFrame, included: list[str]) -> dict[str, float]:
+    if sm is None or not included:
+        return {}
+    sub = x_df[included]
+    mask = y.notna() & sub.notna().all(axis=1)
+    if mask.sum() < len(included) + 2:
+        return {}
+    model = sm.OLS(y[mask], sm.add_constant(sub[mask])).fit()
+    return {name: float(model.pvalues[name]) for name in included if name in model.pvalues}
+
+
+def _candidate_pvalue_ols(y: pd.Series, x_df: pd.DataFrame, included: list[str], candidate: str) -> float | None:
+    if sm is None:
+        return None
+    trial = included + [candidate]
+    sub = x_df[trial]
+    mask = y.notna() & sub.notna().all(axis=1)
+    if mask.sum() < len(trial) + 2:
+        return None
+    try:
+        model = sm.OLS(y[mask], sm.add_constant(sub[mask])).fit()
+        return float(model.pvalues[candidate])
+    except Exception:
+        return None
+
+
+def _select_predictors(
+    y: pd.Series,
+    x_df: pd.DataFrame,
+    candidates: list[str],
+    *,
+    p_threshold: float,
+    selection_method: str,
+    univariate_screen: bool,
+    binary_y: pd.Series | None = None,
+) -> list[str]:
+    pool = [c for c in candidates if c in x_df.columns]
+    if not pool:
+        return []
+    if univariate_screen:
+        pool = _univariate_screen(y, x_df[pool], p_threshold, binary_y=binary_y)
+        if not pool:
+            raise ValueError(f"单因素筛选后无变量满足 P<{p_threshold}")
+    method = (selection_method or "none").lower()
+    if method in ("none", ""):
+        return pool
+    if method == "lasso":
+        from sklearn.linear_model import LassoCV
+        from sklearn.preprocessing import StandardScaler
+
+        sub = x_df[pool]
+        mask = y.notna() & sub.notna().all(axis=1)
+        if mask.sum() < 5:
+            return pool[: min(3, len(pool))]
+        X = StandardScaler().fit_transform(sub[mask].fillna(sub[mask].median()))
+        target = binary_y.loc[mask].values if binary_y is not None else y[mask].values
+        lasso = LassoCV(cv=min(5, int(mask.sum())), random_state=42, max_iter=5000).fit(X, target)
+        picked = [c for c, coef in zip(pool, lasso.coef_) if abs(coef) > 1e-8]
+        return picked or pool[:1]
+
+    if sm is None:
+        return pool
+
+    included: list[str] = []
+    if method == "forward":
+        while True:
+            best_p = p_threshold
+            best_var: str | None = None
+            for cand in pool:
+                if cand in included:
+                    continue
+                p = _candidate_pvalue_ols(y, x_df, included, cand)
+                if p is not None and p <= best_p:
+                    best_p = p
+                    best_var = cand
+            if best_var is None:
+                break
+            included.append(best_var)
+        return included or pool[:1]
+
+    # stepwise: forward + backward until stable
+    while True:
+        changed = False
+        best_p = p_threshold
+        best_var: str | None = None
+        for cand in pool:
+            if cand in included:
+                continue
+            p = _candidate_pvalue_ols(y, x_df, included, cand)
+            if p is not None and p <= best_p:
+                best_p = p
+                best_var = cand
+        if best_var is not None:
+            included.append(best_var)
+            changed = True
+        pvals = _model_pvalues_ols(y, x_df, included)
+        removed = False
+        for var, p in sorted(pvals.items(), key=lambda x: -x[1]):
+            if p > p_threshold and len(included) > 1:
+                included.remove(var)
+                changed = True
+                removed = True
+                break
+        if not changed or (best_var is None and not removed):
+            break
+    return included or pool[:1]
+
+
 def run_descriptive(rows: list[dict[str, str]], variables: list[dict[str, str]], selected: list[str]) -> dict[str, Any]:
     df = _build_frame(rows, variables)
     targets = selected or [v["name"] for v in variables if v.get("type") != "file"]
@@ -270,20 +450,28 @@ def run_multiple_regression(
     variables: list[dict[str, str]],
     dependent: str,
     independents: list[str],
+    *,
+    p_threshold: float = 0.10,
+    selection_method: str = "stepwise",
+    univariate_screen: bool = False,
 ) -> dict[str, Any]:
     if sm is None:
         raise RuntimeError("statsmodels 未安装，无法运行多元回归")
     df = _build_frame(rows, variables)
     y = df[dependent].astype(float)
-    x_df = df[independents].copy()
-    for col in x_df.columns:
-        if x_df[col].dtype == object:
-            x_df[col] = x_df[col].astype("category").cat.codes
-    x_df = x_df.apply(pd.to_numeric, errors="coerce")
-    mask = y.notna() & x_df.notna().all(axis=1)
+    x_df = _encode_predictors(df[independents])
+    picked = _select_predictors(
+        y,
+        x_df,
+        independents,
+        p_threshold=p_threshold,
+        selection_method=selection_method,
+        univariate_screen=univariate_screen,
+    )
+    mask = y.notna() & x_df[picked].notna().all(axis=1)
     y = y[mask]
-    x_df = x_df[mask]
-    if len(y) < len(independents) + 2:
+    x_df = x_df[picked][mask]
+    if len(y) < len(picked) + 2:
         raise ValueError("样本量不足以进行多元回归")
     x = sm.add_constant(x_df)
     model = sm.OLS(y, x).fit()
@@ -298,10 +486,14 @@ def run_multiple_regression(
                 "sig": _sig(float(p)),
             }
         )
+    sel_note = f" · 入选 {len(picked)} 变量" if selection_method != "none" or univariate_screen else ""
     return {
         "rows": out,
         "r_squared": round(float(model.rsquared), 4),
-        "summary": f"多元线性回归 · R²={model.rsquared:.3f} · n={len(y)}",
+        "selected_predictors": picked,
+        "p_threshold": p_threshold,
+        "selection_method": selection_method,
+        "summary": f"多元线性回归 · R²={model.rsquared:.3f} · n={len(y)}{sel_note}",
     }
 
 
@@ -311,33 +503,61 @@ def run_logistic_regression(
     outcome_var: str,
     independents: list[str],
     positive_class: str | None = None,
+    *,
+    p_threshold: float = 0.10,
+    selection_method: str = "stepwise",
+    univariate_screen: bool = False,
 ) -> dict[str, Any]:
+    if sm is None:
+        raise RuntimeError("statsmodels 未安装，无法运行逻辑回归")
     df = _build_frame(rows, variables)
     y_raw = df[outcome_var].dropna().astype(str)
     pos = positive_class or y_raw.value_counts().index[0]
-    work = df[independents + [outcome_var]].copy()
-    for col in independents:
-        if work[col].dtype == object:
-            work[col] = work[col].astype("category").cat.codes
-        work[col] = pd.to_numeric(work[col], errors="coerce")
-    work = work.dropna()
-    y = (work[outcome_var].astype(str) == pos).astype(int).values
-    x = work[independents].values
-    if len(np.unique(y)) < 2:
-        raise ValueError("结局变量需为二分类")
-    if len(y) < len(independents) + 5:
+    x_df = _encode_predictors(df[independents])
+    y = df[outcome_var].astype(str)
+    binary_y = (y == pos).astype(int)
+    picked = _select_predictors(
+        y,
+        x_df,
+        independents,
+        p_threshold=p_threshold,
+        selection_method=selection_method,
+        univariate_screen=univariate_screen,
+        binary_y=binary_y,
+    )
+    work = pd.concat([x_df[picked], binary_y.rename("_y")], axis=1).dropna()
+    if len(work) < len(picked) + 5:
         raise ValueError("样本量不足")
-    clf = LogisticRegression(max_iter=1000)
-    clf.fit(x, y)
+    y_fit = work["_y"].astype(int)
+    x_fit = work[picked]
+    if len(np.unique(y_fit)) < 2:
+        raise ValueError("结局变量需为二分类")
+    x = sm.add_constant(x_fit)
+    model = sm.Logit(y_fit, x).fit(disp=0)
     out = []
-    for name, coef in zip(independents, clf.coef_[0]):
-        out.append({"factor": name, "coef": round(float(coef), 4), "odds_ratio": round(float(math.exp(coef)), 4)})
-    acc = accuracy_score(y, clf.predict(x))
+    for name in picked:
+        coef = float(model.params[name])
+        p = float(model.pvalues[name])
+        out.append(
+            {
+                "factor": name,
+                "coef": round(coef, 4),
+                "odds_ratio": round(float(math.exp(coef)), 4),
+                "pValue": _fmt_p(p),
+                "sig": _sig(p),
+            }
+        )
+    pred = (model.predict(x) >= 0.5).astype(int)
+    acc = accuracy_score(y_fit, pred)
+    sel_note = f" · 入选 {len(picked)} 变量" if selection_method != "none" or univariate_screen else ""
     return {
         "rows": out,
         "accuracy": round(float(acc), 4),
         "positive_class": pos,
-        "summary": f"逻辑回归 · 训练准确率={acc:.3f} · n={len(y)}",
+        "selected_predictors": picked,
+        "p_threshold": p_threshold,
+        "selection_method": selection_method,
+        "summary": f"逻辑回归 · 准确率={acc:.3f} · n={len(y_fit)}{sel_note}",
     }
 
 
@@ -494,11 +714,187 @@ def run_ml(
     }
 
 
+def run_markov(
+    rows: list[dict[str, str]],
+    variables: list[dict[str, str]],
+    state_var: str,
+    from_state_var: str | None = None,
+    patient_id_field: str | None = None,
+    time_var: str | None = None,
+) -> dict[str, Any]:
+    df = _build_frame(rows, variables)
+    if state_var not in df.columns:
+        raise ValueError(f"未找到状态变量：{state_var}")
+
+    transitions: list[tuple[str, str]] = []
+    pid_col = patient_id_field or "患者ID"
+
+    if from_state_var and from_state_var in df.columns:
+        sub = df[[from_state_var, state_var]].dropna()
+        for _, row in sub.iterrows():
+            a = str(row[from_state_var]).strip()
+            b = str(row[state_var]).strip()
+            if a and b:
+                transitions.append((a, b))
+    elif pid_col in df.columns:
+        sort_cols = [pid_col]
+        if time_var and time_var in df.columns:
+            sort_cols.append(time_var)
+        sub = df.sort_values(sort_cols)
+        for _, grp in sub.groupby(pid_col):
+            states = [str(s).strip() for s in grp[state_var].dropna().tolist() if str(s).strip()]
+            for i in range(len(states) - 1):
+                transitions.append((states[i], states[i + 1]))
+    else:
+        raise ValueError("马尔可夫链需：① 起始状态 + 结束状态变量，或 ② 患者 ID + 状态变量（同一患者≥2 次观测）")
+
+    if len(transitions) < 2:
+        raise ValueError(f"有效状态转移仅 {len(transitions)} 条，不足以估计 CTMC 转移矩阵")
+
+    states = sorted({a for a, _ in transitions} | {b for _, b in transitions})
+    idx = {s: i for i, s in enumerate(states)}
+    n = len(states)
+    counts = np.zeros((n, n))
+    for a, b in transitions:
+        counts[idx[a], idx[b]] += 1
+
+    rows_out: list[dict[str, Any]] = []
+    for i, from_s in enumerate(states):
+        row_sum = counts[i].sum()
+        if row_sum <= 0:
+            continue
+        for j, to_s in enumerate(states):
+            if counts[i, j] <= 0:
+                continue
+            prob = float(counts[i, j] / row_sum)
+            rows_out.append(
+                {
+                    "factor": f"{from_s} → {to_s}",
+                    "metric": round(prob, 4),
+                    "pValue": "—",
+                    "note": f"n={int(counts[i, j])}",
+                    "sig": "",
+                }
+            )
+
+    row_sums = counts.sum(axis=1, keepdims=True)
+    P = np.divide(counts, row_sums, out=np.zeros_like(counts), where=row_sums > 0)
+    steady_txt = ""
+    if n > 0 and P.sum() > 0:
+        try:
+            eigvals, eigvecs = np.linalg.eig(P.T)
+            ss_idx = int(np.argmin(np.abs(eigvals - 1)))
+            ss = np.real(eigvecs[:, ss_idx])
+            ss = np.where(ss < 0, -ss, ss)
+            if ss.sum() > 0:
+                ss = ss / ss.sum()
+                steady_txt = " · ".join(f"{s} {ss[i] * 100:.0f}%" for i, s in enumerate(states))
+        except Exception:
+            steady_txt = ""
+
+    mode = f"{from_state_var}→{state_var}" if from_state_var else f"纵向 {state_var}"
+    return {
+        "rows": rows_out,
+        "steady_state": steady_txt,
+        "n_transitions": len(transitions),
+        "n_states": n,
+        "summary": f"马尔可夫链 CTMC · {mode} · {len(transitions)} 次转移 · {n} 个状态",
+    }
+
+
+def run_arimax(
+    rows: list[dict[str, str]],
+    variables: list[dict[str, str]],
+    dependent: str,
+    independents: list[str],
+    time_var: str | None = None,
+    arima_order: list[int] | None = None,
+) -> dict[str, Any]:
+    try:
+        from statsmodels.tsa.statespace.sarimax import SARIMAX
+    except ImportError as e:
+        raise RuntimeError("statsmodels 未安装 SARIMAX，无法运行 ARIMAX") from e
+
+    order = tuple(arima_order or [1, 1, 1])
+    if len(order) != 3:
+        raise ValueError("arima_order 需为 [p, d, q]")
+
+    df = _build_frame(rows, variables)
+    if dependent not in df.columns:
+        raise ValueError(f"未找到因变量：{dependent}")
+
+    if time_var and time_var in df.columns:
+        df = df.sort_values(time_var)
+
+    y = pd.to_numeric(df[dependent], errors="coerce")
+    exog_df = None
+    if independents:
+        exog_df = df[independents].apply(pd.to_numeric, errors="coerce")
+
+    mask = y.notna()
+    if exog_df is not None:
+        mask &= exog_df.notna().all(axis=1)
+    endog = y[mask].astype(float)
+    exog = exog_df[mask].values if exog_df is not None else None
+
+    min_n = sum(order) + len(independents) + 3
+    if len(endog) < min_n and len(endog) >= 4:
+        order = (1, 0, 0)
+        min_n = 4
+    if len(endog) < min_n:
+        raise ValueError(f"时间序列长度 {len(endog)} 不足，ARIMAX{order} 至少需要 {min_n} 个观测")
+
+    model = SARIMAX(
+        endog,
+        exog=exog,
+        order=order,
+        enforce_stationarity=False,
+        enforce_invertibility=False,
+    )
+    res = model.fit(disp=False, maxiter=200)
+
+    rows_out: list[dict[str, Any]] = []
+    for name in res.params.index:
+        coef = float(res.params[name])
+        se = float(res.bse[name]) if name in res.bse.index else float("nan")
+        p = float(res.pvalues[name]) if name in res.pvalues.index else float("nan")
+        rows_out.append(
+            {
+                "factor": str(name),
+                "coef": round(coef, 4),
+                "se": round(se, 4) if np.isfinite(se) else None,
+                "pValue": _fmt_p(p) if np.isfinite(p) else "—",
+                "sig": _sig(p) if np.isfinite(p) else "",
+            }
+        )
+
+    steps = min(6, max(1, len(endog) // 3))
+    try:
+        fc = res.forecast(steps=steps)
+        forecast_txt = f"未来 {steps} 步预测均值={float(np.mean(fc)):.3f}"
+    except Exception:
+        forecast_txt = "预测步长不足，未生成外推"
+
+    exog_note = f" · 外生变量 {len(independents)} 个" if independents else ""
+    return {
+        "rows": rows_out,
+        "aic": round(float(res.aic), 2),
+        "bic": round(float(res.bic), 2),
+        "forecast": forecast_txt,
+        "order": list(order),
+        "summary": f"ARIMAX{order} · AIC={res.aic:.1f} · n={len(endog)}{exog_note}",
+    }
+
+
 def analyze_clinical_dataset(body: dict[str, Any]) -> dict[str, Any]:
+    body = _filter_body_rows(body)
     analysis = body.get("analysis", "desc")
     rows = body.get("rows") or []
     variables = body.get("variables") or []
     selected = body.get("selected_vars") or []
+    p_threshold = float(body.get("p_threshold") or 0.10)
+    selection_method = str(body.get("selection_method") or "stepwise")
+    univariate_screen = bool(body.get("univariate_screen"))
 
     if not rows:
         raise ValueError("数据集为空")
@@ -530,7 +926,15 @@ def analyze_clinical_dataset(body: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("一致性检验需选择两个变量")
         return run_consistency(rows, variables, vars_[0], vars_[1])
     if analysis == "multi_reg":
-        return run_multiple_regression(rows, variables, body.get("dependent") or "", body.get("independents") or [])
+        return run_multiple_regression(
+            rows,
+            variables,
+            body.get("dependent") or "",
+            body.get("independents") or [],
+            p_threshold=p_threshold,
+            selection_method=selection_method,
+            univariate_screen=univariate_screen,
+        )
     if analysis == "logistic":
         return run_logistic_regression(
             rows,
@@ -538,6 +942,9 @@ def analyze_clinical_dataset(body: dict[str, Any]) -> dict[str, Any]:
             body.get("outcome_var") or body.get("dependent") or "",
             body.get("independents") or [],
             body.get("positive_class"),
+            p_threshold=p_threshold,
+            selection_method=selection_method,
+            univariate_screen=univariate_screen,
         )
     if analysis == "survival":
         return run_survival(
@@ -554,6 +961,25 @@ def analyze_clinical_dataset(body: dict[str, Any]) -> dict[str, Any]:
             body.get("time_var") or "",
             body.get("event_var") or "",
             body.get("independents") or body.get("covariates") or [],
+        )
+    if analysis == "markov":
+        return run_markov(
+            rows,
+            variables,
+            body.get("state_var") or "",
+            body.get("from_state_var"),
+            body.get("patient_id_field"),
+            body.get("time_var"),
+        )
+    if analysis == "arimax":
+        order = body.get("arima_order") or [1, 1, 1]
+        return run_arimax(
+            rows,
+            variables,
+            body.get("dependent") or "",
+            body.get("independents") or [],
+            body.get("time_var"),
+            order,
         )
     if analysis == "ml":
         return run_ml(

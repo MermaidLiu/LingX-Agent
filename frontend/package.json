@@ -14,12 +14,15 @@
     "antd": "^5.18.3",
     "axios": "^1.7.2",
     "dayjs": "^1.11.11",
+    "jszip": "^3.10.1",
+    "nifti-reader-js": "^0.8.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.24.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/jszip": "^3.4.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",

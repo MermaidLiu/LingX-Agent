@@ -336,6 +336,14 @@ class ClinicalDatasetAnalyzeBody(BaseModel):
     feature_vars: list[str] = Field(default_factory=list)
     ml_model: str = "random_forest"
     test_size: float = 0.3
+    p_threshold: float = 0.10
+    selection_method: str = "stepwise"
+    univariate_screen: bool = False
+    filter_criteria: dict[str, list[str]] = Field(default_factory=dict)
+    patient_id_field: str | None = None
+    from_state_var: str | None = None
+    state_var: str | None = None
+    arima_order: list[int] = Field(default_factory=lambda: [1, 1, 1])
 
 
 class ClinicalDatasetAnalyzeResponse(BaseModel):

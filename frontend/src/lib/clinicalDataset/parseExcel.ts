@@ -1,4 +1,5 @@
 import * as XLSX from "xlsx";
+import { pickClinicalExcelSheet } from "../clinicalExcelSheet";
 import {
   CATEGORY_LABELS,
   DEFAULT_PURCHASED_MODULES,
@@ -15,6 +16,11 @@ import {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const FILE_LINK_RE = /\{([^}]+)\}/;
 const PATIENT_ID_RE = /患者\s*ID/i;
+const PATIENT_ID_HEADER_RE = /^(患者\s*ID|患者ID|patient\s*_?\s*id|ID|id|就诊号|病历号|住院号|admission\s*id)$/i;
+
+function isPatientIdColumnName(name: string): boolean {
+  return PATIENT_ID_HEADER_RE.test(name.trim());
+}
 
 function cellStr(v: unknown): string {
   if (v == null) return "";
@@ -33,12 +39,57 @@ function forwardFillCategories(row: string[]): string[] {
 
 function normalizeCategory(label: string, varName: string): ColumnCategory {
   const s = `${label}${varName}`;
-  if (PATIENT_ID_RE.test(varName) || PATIENT_ID_RE.test(label)) return "patient_id";
+  if (isPatientIdColumnName(varName) || PATIENT_ID_RE.test(varName) || PATIENT_ID_RE.test(label)) {
+    return "patient_id";
+  }
   if (/影像/.test(s)) return "imaging_file";
-  if (/病理/.test(s)) return "pathology_file";
+  if (/病理文件/.test(s)) return "pathology_file";
   if (/波形|心电|脑电|ECG|EEG/.test(s)) return "waveform_file";
-  if (/患者信息|实验室|检查|临床/.test(s)) return "patient_info";
+  if (/患者信息|实验室|检查|临床|病理|姓名|性别|年龄|CEA|CA-|PCI|WBC|Ki-?67|免疫/i.test(s)) {
+    return "patient_info";
+  }
   return "unknown";
+}
+
+function categoryLabelFromVarName(varName: string): string {
+  if (isPatientIdColumnName(varName) || PATIENT_ID_RE.test(varName)) return "患者 ID";
+  if (/影像|CT|MRI|DICOM|nii/i.test(varName)) return "影像文件";
+  if (/病理文件/.test(varName)) return "病理文件";
+  if (/波形|心电|ECG|EEG/.test(varName)) return "波形文件";
+  return "患者信息";
+}
+
+function isLikelyVariableNameCell(value: string): boolean {
+  const v = value.trim();
+  if (!v) return false;
+  if (/^\d+$/.test(v)) return false;
+  if (isPatientIdColumnName(v)) return true;
+  if (/^[\u4e00-\u9fff]{1,8}$/.test(v) && !/^\d+岁$/.test(v)) return true;
+  if (/^[A-Za-z0-9_\-（）().]+$/.test(v) && v.length <= 32) return true;
+  return false;
+}
+
+/** 单行表头（如 临床资料.xls：第 1 行 ID/姓名/…，第 2 行起为数据） */
+function isFlatHeaderSheet(grid: unknown[][], headerRowIndex = 0): boolean {
+  if (grid.length < headerRowIndex + 2) return false;
+  const headers = grid[headerRowIndex].map(cellStr);
+  const firstData = grid[headerRowIndex + 1].map(cellStr);
+
+  const row0IsCategoryRow = headers.some((h) =>
+    /^(患者\s*ID|患者信息|影像文件|病理文件|波形)/.test(h),
+  );
+  if (row0IsCategoryRow) return false;
+
+  const idCol = headers.findIndex(isPatientIdColumnName);
+  if (idCol < 0) return false;
+
+  const idValue = firstData[idCol] ?? "";
+  if (!idValue || isLikelyVariableNameCell(idValue)) return false;
+
+  const nameCol = headers.findIndex((h) => /^姓名$|^name$/i.test(h));
+  if (nameCol >= 0 && /^[\u4e00-\u9fff]/.test(firstData[nameCol] ?? "")) return true;
+
+  return /^\d+$/.test(idValue) || idValue.length >= 2;
 }
 
 function parseFileLinkKey(varName: string): FileLinkKey | undefined {
@@ -93,11 +144,16 @@ export function parseClinicalExcelBuffer(
   const errors: string[] = [];
 
   const wb = XLSX.read(buffer, { type: "array", cellDates: false });
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  const grid = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, { header: 1, defval: "" }) as unknown[][];
+  const picked = pickClinicalExcelSheet(wb);
+  const grid = picked.matrix as unknown[][];
+  if (picked.sheetName !== wb.SheetNames[0]) {
+    warnings.push(`已从工作表「${picked.sheetName}」读取（共 ${wb.SheetNames.length} 个 Sheet，选用数据最全的一页）`);
+  }
 
-  if (grid.length < 3) {
-    errors.push("Excel 至少需要 3 行：第 1 行类型、第 2 行变量名、第 3 行起为数据");
+  const flatHeader = isFlatHeaderSheet(grid, picked.headerRowIndex);
+
+  if (!flatHeader && grid.length < 3) {
+    errors.push("Excel 至少需要 3 行：第 1 行类型、第 2 行变量名、第 3 行起为数据（或使用单行表头：第 1 行变量名、第 2 行起为数据）");
     return {
       dataset: { name: datasetName, variables: [], rows: [], patientIdField: "", usedFileLinkKeys: [] },
       warnings,
@@ -105,8 +161,29 @@ export function parseClinicalExcelBuffer(
     };
   }
 
-  const typeRow = forwardFillCategories(grid[0].map(cellStr));
-  const varRow = grid[1].map(cellStr);
+  if (flatHeader && grid.length < 2) {
+    errors.push("Excel 至少需要 2 行：第 1 行变量名、第 2 行起为数据");
+    return {
+      dataset: { name: datasetName, variables: [], rows: [], patientIdField: "", usedFileLinkKeys: [] },
+      warnings,
+      errors,
+    };
+  }
+
+  let typeRow: string[];
+  let varRow: string[];
+  let dataRows: unknown[][];
+
+  if (flatHeader) {
+    varRow = grid[picked.headerRowIndex].map(cellStr);
+    typeRow = varRow.map(categoryLabelFromVarName);
+    dataRows = grid.slice(picked.headerRowIndex + 1).filter((row) => row.some((c) => cellStr(c) !== ""));
+    warnings.push("已识别为单行表头格式（第 1 行变量名，第 2 行起为病例数据）");
+  } else {
+    typeRow = forwardFillCategories(grid[picked.headerRowIndex].map(cellStr));
+    varRow = grid[picked.headerRowIndex + 1].map(cellStr);
+    dataRows = grid.slice(picked.headerRowIndex + 2).filter((row) => row.some((c) => cellStr(c) !== ""));
+  }
 
   const colCount = Math.max(typeRow.length, varRow.length);
   const columns: {
@@ -122,7 +199,7 @@ export function parseClinicalExcelBuffer(
   for (let i = 0; i < colCount; i++) {
     const categoryLabel = typeRow[i] ?? "";
     const rawName = varRow[i] ?? "";
-    if (!rawName && !PATIENT_ID_RE.test(categoryLabel)) continue;
+    if (!rawName && !PATIENT_ID_RE.test(categoryLabel) && !isPatientIdColumnName(categoryLabel)) continue;
 
     const name = rawName ? displayVarName(rawName) : displayVarName(categoryLabel);
     if (!name) continue;
@@ -151,12 +228,14 @@ export function parseClinicalExcelBuffer(
     if (count > 1) errors.push(`变量名重复：「${n}」出现 ${count} 次`);
   }
 
-  const patientCol = columns.find((c) => c.category === "patient_id") ?? columns.find((c) => PATIENT_ID_RE.test(c.name));
+  const patientCol =
+    columns.find((c) => c.category === "patient_id") ??
+    columns.find((c) => isPatientIdColumnName(c.name)) ??
+    columns.find((c) => PATIENT_ID_RE.test(c.name));
   if (!patientCol) {
-    errors.push("未找到「患者 ID」列，第一行类型或第二行变量名须包含患者 ID");
+    errors.push("未找到「患者 ID」列，第一行类型或第二行变量名须包含患者 ID（或单行表头中使用 ID / 患者ID 列）");
   }
 
-  const dataRows = grid.slice(2).filter((row) => row.some((c) => cellStr(c) !== ""));
   const usedFileLinkKeys: string[] = [];
 
   const variables: ClinicalVariable[] = columns.map((col) => {

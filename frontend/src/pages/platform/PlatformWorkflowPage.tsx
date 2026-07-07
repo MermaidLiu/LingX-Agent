@@ -4,12 +4,17 @@ import type { UploadFile } from "antd/es/upload/interface";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { MOCK_PATIENTS, WORKFLOW_STEPS } from "../../data/platformMock";
-import { getPendingCaseFileNames, setPendingCaseFiles, toNativeFiles } from "../../lib/platformCaseUpload";
+import {
+  getPendingCaseFileNames,
+  hasPendingImagingFiles,
+  setPendingCaseFiles,
+  toNativeFiles,
+} from "../../lib/platformCaseUpload";
 import { getWorkflowCase, saveClinicalFields } from "../../lib/workflowCase";
 
 const { Title, Paragraph, Text } = Typography;
 
-const ACCEPT = ".dcm,.dicom,.zip,.xlsx,.xls,.csv,.pdf,.doc,.docx,.json";
+const ACCEPT = ".dcm,.dicom,.zip,.pdf,.doc,.docx,.json";
 
 export default function PlatformWorkflowPage() {
   const { message } = App.useApp();
@@ -88,7 +93,11 @@ export default function PlatformWorkflowPage() {
     persistClinicalFields();
     const files = syncPendingFiles();
     if (!files.length) {
-      message.warning("请先上传病例文件（至少包含 DICOM 或 ZIP）");
+      message.warning("请先上传本例 DICOM 或 ZIP 影像");
+      return;
+    }
+    if (!hasPendingImagingFiles()) {
+      message.warning("请上传 DICOM 或 ZIP 压缩包");
       return;
     }
     message.success(`已加载 ${files.length} 个文件，正在前往智能分析…`);
@@ -249,8 +258,8 @@ export default function PlatformWorkflowPage() {
                     <p className="ant-upload-drag-icon">
                       <UploadOutlined style={{ fontSize: 36, color: "#1677ff" }} />
                     </p>
-                    <Paragraph>拖拽或点击上传病例文件</Paragraph>
-                    <Text type="secondary">DICOM（.dcm）· ZIP · Excel · PDF · Word</Text>
+                    <Paragraph>拖拽或点击上传本例 DICOM / ZIP</Paragraph>
+                    <Text type="secondary">单例影像 · 进入智能分析后调用 CT 合并接口（分割 + PCI）</Text>
                   </Upload.Dragger>
                   {uploadFiles.length > 0 ? (
                     <div style={{ marginTop: 12 }}>
@@ -280,7 +289,11 @@ export default function PlatformWorkflowPage() {
                 <div className="pmp-card" style={{ padding: 16 }}>
                   <div className="pmp-panel-title">说明</div>
                   <Paragraph type="secondary" style={{ fontSize: 13 }}>
-                    填写临床信息与实验室指标（CEA、CA125、CA19-9）并上传 DICOM/ZIP 后进入智能分析：系统将输出影像分割、PCI 评分、综合报告、指南治疗建议，并可一键加入随访队列，再进入科研延伸。
+                    工作台面向单例患者：填写临床信息并上传 DICOM/ZIP，进入智能分析后由 CT 接口返回分割勾画与 PCI 报告。
+                  </Paragraph>
+                  <Paragraph type="secondary" style={{ fontSize: 13 }}>
+                    批量预勾画影像 + 临床 Excel 导入请前往{" "}
+                    <Link to="/db/follow-up">随访队列</Link>。
                   </Paragraph>
                   {getPendingCaseFileNames().length > 0 ? (
                     <AlertLike text={`当前已缓存 ${getPendingCaseFileNames().length} 个文件，可直接进入智能分析`} />

@@ -1,17 +1,26 @@
-import { ReloadOutlined, TeamOutlined } from "@ant-design/icons";
+import { ReloadOutlined, TeamOutlined, ExperimentOutlined } from "@ant-design/icons";
 import { App, Button, Card, Table, Tag, Typography } from "antd";
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { cohortQuery, type PetCtInterviewRecord } from "../../api/client";
+import FollowUpBatchImportPanel from "../../components/platform/FollowUpBatchImportPanel";
 import { FOLLOWUP_PHENOTYPE_TAG, listFollowUpQueue, type FollowUpEntry } from "../../lib/followUpQueue";
+import { activateResearchFromFollowUpBatch } from "../../lib/researchBatchContext";
+import {
+  FOLLOWUP_BATCH_IMPORTED_EVENT,
+  loadFollowUpBatch,
+  type FollowUpBatchState,
+} from "../../lib/followUpBatchStore";
 
 const { Title, Paragraph } = Typography;
 
 export default function PlatformFollowUpPage() {
   const { message } = App.useApp();
+  const nav = useNavigate();
   const [queue, setQueue] = useState<FollowUpEntry[]>([]);
   const [dbRecords, setDbRecords] = useState<PetCtInterviewRecord[]>([]);
   const [loadingDb, setLoadingDb] = useState(false);
+  const [batch, setBatch] = useState<FollowUpBatchState | null>(() => loadFollowUpBatch());
 
   const refreshQueue = useCallback(() => {
     setQueue(listFollowUpQueue());
@@ -36,6 +45,11 @@ export default function PlatformFollowUpPage() {
   useEffect(() => {
     refreshQueue();
     void loadDbFollowUp();
+    function onBatchImported(e: Event) {
+      setBatch((e as CustomEvent<FollowUpBatchState>).detail ?? loadFollowUpBatch());
+    }
+    window.addEventListener(FOLLOWUP_BATCH_IMPORTED_EVENT, onBatchImported);
+    return () => window.removeEventListener(FOLLOWUP_BATCH_IMPORTED_EVENT, onBatchImported);
   }, [refreshQueue, loadDbFollowUp]);
 
   const gradeColor = (label: string) =>
@@ -48,11 +62,75 @@ export default function PlatformFollowUpPage() {
         随访队列
       </Title>
       <Paragraph type="secondary">
-        在「智能分析」完成影像报告与治疗建议后，点击「加入随访队列」的病例会出现在此处，并同步至患者数据库。
+        单例患者可在「智能分析」完成后加入随访队列；批量预勾画影像与临床 Excel 请在本页导入并关联就诊号。
       </Paragraph>
 
+      <FollowUpBatchImportPanel onImported={setBatch} />
+
+      {batch ? (
+        <Card
+          title={`批量导入队列 · ${batch.matchedCount}/${batch.cases.length} 已关联影像`}
+          size="small"
+          style={{ marginBottom: 16 }}
+          extra={
+            <Button
+              type="primary"
+              size="small"
+              icon={<ExperimentOutlined />}
+              onClick={() => {
+                const ctx = activateResearchFromFollowUpBatch("follow_up_batch");
+                if (!ctx) {
+                  message.warning("请先完成导入");
+                  return;
+                }
+                nav("/knowledge");
+              }}
+            >
+              进入科研分析
+            </Button>
+          }
+        >
+          <Table
+            size="small"
+            rowKey="visitId"
+            pagination={{ pageSize: 10, showSizeChanger: true }}
+            dataSource={batch.cases}
+            scroll={{ x: 960 }}
+            columns={[
+              { title: "就诊号", dataIndex: "visitId", width: 120, fixed: "left" },
+              { title: "姓名", dataIndex: "name", width: 88 },
+              { title: "性别", dataIndex: "gender", width: 56 },
+              { title: "年龄", dataIndex: "age", width: 72 },
+              {
+                title: "病理分级",
+                dataIndex: "gradeLabel",
+                width: 88,
+                render: (v: string) => <Tag color={gradeColor(v)}>{v}</Tag>,
+              },
+              {
+                title: "PCI",
+                width: 56,
+                render: (_: unknown, r) => (r.pciScore != null ? r.pciScore : "—"),
+              },
+              {
+                title: "预勾画",
+                width: 88,
+                render: (_: unknown, r) =>
+                  r.niiVolumeId ? <Tag color="cyan">已关联</Tag> : <Tag>未匹配</Tag>,
+              },
+              {
+                title: "NIfTI",
+                dataIndex: "niiFileName",
+                ellipsis: true,
+                render: (v: string | null) => v || "—",
+              },
+            ]}
+          />
+        </Card>
+      ) : null}
+
       <Card
-        title="本机随访队列"
+        title="本机随访队列（单例入队）"
         size="small"
         style={{ marginBottom: 16 }}
         extra={
@@ -70,7 +148,7 @@ export default function PlatformFollowUpPage() {
       >
         {queue.length === 0 ? (
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            暂无随访病例。请先在 <Link to="/analysis">智能分析</Link> 完成分析并入队。
+            暂无单例随访病例。请先在 <Link to="/analysis">智能分析</Link> 完成分析并入队。
           </Paragraph>
         ) : (
           <Table

@@ -30,7 +30,7 @@ export function CarePathwayPanel({
     <div className="pmp-care-pathway" style={{ marginTop: 20 }}>
       <Title level={5}>临床路径 · 报告与治疗建议</Title>
       <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
-        影像分析报告取自 CT 合并接口 PCI 结论；治疗建议由 DeepSeek 结合接口结论与临床信息生成，参考中国肿瘤临床、中华胃肠外科杂志、消化肿瘤杂志（电子版）及 CSCO 原则。
+        影像分析报告取自 CT 合并接口 PCI 结论；治疗建议由 DeepSeek 结合接口结论与临床信息生成，临床指南参考 UpToDate 临床决策及 CSCO 等权威来源。
       </Paragraph>
 
       <Row gutter={[16, 16]}>

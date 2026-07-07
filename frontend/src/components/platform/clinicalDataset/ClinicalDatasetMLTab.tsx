@@ -2,6 +2,7 @@ import { App, Button, Checkbox, Empty, Radio, Select, Space, Spin, Steps, Tag, T
 import { useState } from "react";
 import type { ClinicalAnalyzeResult } from "../../../api/platform";
 import { runClinicalAnalysis } from "../../../lib/clinicalDataset/analyzeApi";
+import { excelHeaderOptions } from "../../../lib/clinicalDataset/variableOptions";
 import type { ClinicalDataset } from "../../../lib/clinicalDataset/types";
 
 const { Text, Title } = Typography;
@@ -27,18 +28,13 @@ type Props = {
 export default function ClinicalDatasetMLTab({ dataset }: Props) {
   const { message } = App.useApp();
   const [step, setStep] = useState(0);
-  const [selectedClinical, setSelectedClinical] = useState<string[]>(
-    dataset.variables.filter((v) => v.type !== "file" && !v.skipped && v.type !== "date").slice(0, 4).map((v) => v.name),
-  );
+  const [selectedClinical, setSelectedClinical] = useState<string[]>([]);
   const [outcomeVar, setOutcomeVar] = useState<string>();
   const [mlModel, setMlModel] = useState<MlModel>("random_forest");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ClinicalAnalyzeResult | null>(null);
 
-  const clinicalOptions = dataset.variables.filter((v) => v.type !== "file" && !v.skipped);
-  const catOptions = clinicalOptions
-    .filter((v) => v.type === "categorical" || v.type === "text")
-    .map((v) => ({ value: v.name, label: v.name }));
+  const headerOptions = excelHeaderOptions(dataset);
 
   async function handleRun() {
     if (!outcomeVar) {
@@ -111,23 +107,25 @@ export default function ClinicalDatasetMLTab({ dataset }: Props) {
                   placeholder="如：性别、病理分级"
                   value={outcomeVar}
                   onChange={setOutcomeVar}
-                  options={catOptions}
+                  options={headerOptions}
+                  showSearch
+                  optionFilterProp="label"
                 />
                 <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
-                  自变量（临床字段）
+                  自变量（Excel 表头）
                 </Text>
                 <Space wrap style={{ marginBottom: 16 }}>
-                  {clinicalOptions.map((v) => (
+                  {headerOptions.map((v) => (
                     <Tag.CheckableTag
-                      key={v.id}
-                      checked={selectedClinical.includes(v.name)}
+                      key={v.value}
+                      checked={selectedClinical.includes(v.value)}
                       onChange={(checked) => {
                         setSelectedClinical((prev) =>
-                          checked ? [...prev, v.name] : prev.filter((x) => x !== v.name),
+                          checked ? [...prev, v.value] : prev.filter((x) => x !== v.value),
                         );
                       }}
                     >
-                      {v.name}
+                      {v.label}
                     </Tag.CheckableTag>
                   ))}
                 </Space>

@@ -975,6 +975,116 @@ body {
   object-fit: contain;
 }
 
+.pmp-annotation-viewer-stage {
+  position: relative;
+}
+
+.pmp-annotation-viewer-image {
+  width: 100%;
+  min-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pmp-annotation-viewer-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 2;
+}
+
+.pmp-annotation-viewer-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  width: 40px;
+  height: 64px;
+  color: #fff !important;
+  background: rgba(15, 23, 42, 0.6) !important;
+  border-radius: 8px;
+}
+
+.pmp-annotation-viewer-nav:disabled {
+  opacity: 0.35;
+}
+
+.pmp-annotation-viewer-nav--left {
+  left: 8px;
+}
+
+.pmp-annotation-viewer-nav--right {
+  right: 8px;
+}
+
+.pmp-annotation-viewer-controls {
+  margin-top: 12px;
+}
+
+.pmp-annotation-viewer-slider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.pmp-annotation-viewer-slider .ant-slider {
+  flex: 1;
+  margin: 0;
+}
+
+.pmp-batch-image-nav {
+  width: 100%;
+}
+
+.pmp-batch-image-nav-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.pmp-batch-image-nav-image {
+  width: 100%;
+}
+
+.pmp-batch-image-nav-btn {
+  width: 48px;
+  height: 40px;
+  color: #fff !important;
+  background: rgba(15, 23, 42, 0.65) !important;
+  border-radius: 8px;
+}
+
+.pmp-batch-image-nav-btn:disabled {
+  opacity: 0.35;
+}
+
+.pmp-batch-image-nav-meta {
+  margin-top: 8px;
+  text-align: center;
+}
+
+.pmp-nii-viewer-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.pmp-nii-viewer-image {
+  width: 100%;
+}
+
+.pmp-clinical-workbook .ant-select {
+  max-width: 100%;
+}
+
 .pmp-annotation-dataset {
   background: linear-gradient(135deg, #f8fafc 0%, #eff6ff 100%);
   border: 1px solid #dbeafe;
@@ -1048,6 +1158,41 @@ body {
 
 .pmp-clinical-workbench .pmp-clinical-main-tabs > .ant-tabs-nav {
   margin-bottom: 12px;
+}
+
+.pmp-clinical-top-nav > .ant-tabs-nav .ant-tabs-tab {
+  font-size: 14px;
+  padding: 10px 20px;
+}
+
+.pmp-clinical-top-nav > .ant-tabs-nav .ant-tabs-tab-active {
+  font-weight: 600;
+}
+
+.pmp-clinical-var-block {
+  margin-bottom: 12px;
+}
+
+.pmp-clinical-var-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.pmp-clinical-var-hint {
+  display: block;
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.pmp-clinical-tool-card--save {
+  margin-left: auto;
+}
+
+.pmp-clinical-stats-main--filled {
+  align-items: flex-start;
+  justify-content: flex-start;
 }
 
 .pmp-clinical-processing-grid {

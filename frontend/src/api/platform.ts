@@ -527,6 +527,14 @@ export async function platformClinicalDatasetAnalyze(body: {
   feature_vars?: string[];
   ml_model?: string;
   test_size?: number;
+  p_threshold?: number;
+  selection_method?: string;
+  univariate_screen?: boolean;
+  filter_criteria?: Record<string, string[]>;
+  patient_id_field?: string;
+  from_state_var?: string;
+  state_var?: string;
+  arima_order?: number[];
 }) {
   const { data } = await api.post<ClinicalAnalyzeResult>("/api/v1/platform/clinical-dataset/analyze", body);
   return data;

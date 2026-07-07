@@ -3,9 +3,11 @@ import {
   getPendingCaseFileNames,
   getPendingCaseFiles,
   hasPendingCaseFiles,
+  hasPendingImagingFiles,
   pendingCaseFilesChanged,
   pendingCaseFilesFingerprint,
 } from "./platformCaseUpload";
+import { isPresegmentedResult } from "./presegmentedCase";
 import {
   getPathologyImagingOrNull,
   hydratePathologyImagingResult,
@@ -129,6 +131,7 @@ export async function startPathologyAnalysis(opts?: {
   }
 
   running = true;
+
   setJob({
     phase: "running",
     message: "正在调用 CT 合并接口（分割 + PCI 报告）…",
@@ -197,12 +200,15 @@ export async function startPathologyAnalysis(opts?: {
 
 export function shouldAutoStartPathologyAnalysis(): boolean {
   if (!hasPendingCaseFiles()) return false;
+  if (!hasPendingImagingFiles()) return false;
   if (isPathologyJobRunning()) return false;
   const session = loadPlatformSession();
   if (pendingCaseFilesChanged(session.uploadedFileNames, session.uploadedFileFingerprint)) return true;
   const cached = getPathologyImagingOrNull();
   return !cached || cached.status !== "ok";
 }
+
+export { isPresegmentedResult };
 
 export function resetPathologyJob() {
   setJob({ ...IDLE });

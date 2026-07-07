@@ -1,5 +1,5 @@
 import { ArrowLeftOutlined, ExportOutlined, FileTextOutlined, UploadOutlined } from "@ant-design/icons";
-import { App, Button, Checkbox, Input, Space, Table, Tag, Typography, Upload } from "antd";
+import { App, Alert, Button, Checkbox, Input, Space, Table, Tag, Typography, Upload } from "antd";
 import type { UploadFile } from "antd/es/upload/interface";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
@@ -13,12 +13,16 @@ import {
   setPendingCaseFiles,
 } from "../../lib/platformCaseUpload";
 import { getPathologyImagingOrNull, hydratePathologyImagingResult } from "../../lib/platformSession";
+import { consumeBatchSelection, type BatchPatientRef } from "../../lib/platformBatchSelection";
+import { loadPathologyImage } from "../../lib/pathologyImagingCache";
+import { getFollowUpBatchCase } from "../../lib/followUpBatchStore";
 import { saveModuleResult } from "../../lib/researchModuleResults";
 import { buildResearchWorkflowPayload, getWorkflowContext } from "../../lib/workflowContext";
 import { hasAnnotatedImage, imageSrcFromBase64 } from "../../lib/pathologyImage";
 import IndicatorInputPanel from "./IndicatorInputPanel";
 import ClinicalQuestionPanel from "./ClinicalQuestionPanel";
 import RadiomicsPipeline from "./RadiomicsPipeline";
+import type { BatchImageItem } from "./BatchImageNavigator";
 import WorkflowContextBanner from "./WorkflowContextBanner";
 import {
   applyQuestionTemplate,
@@ -47,6 +51,10 @@ type Props = {
   enablePathologyPlatform?: boolean;
   radiomicsAnnotatedImage?: string | null;
   radiomicsPathologyGrade?: string;
+  initialTaskId?: string;
+  batchPatients?: BatchPatientRef[];
+  /** 批量导入仅含预勾画 ROI，不走智能分析接口 */
+  batchRoiMode?: boolean;
   extraCenter?: ReactNode;
   linkedBanner?: ReactNode;
 };
@@ -143,6 +151,9 @@ export default function ResearchWorkbench({
   enablePathologyPlatform = false,
   radiomicsAnnotatedImage,
   radiomicsPathologyGrade,
+  initialTaskId,
+  batchPatients = [],
+  batchRoiMode = false,
   extraCenter,
   linkedBanner,
 }: Props) {
@@ -150,7 +161,7 @@ export default function ResearchWorkbench({
   const colors = THEME[theme];
   const [selectedFields, setSelectedFields] = useState<string[]>(fields.slice(0, 6));
   const [indicatorValues, setIndicatorValues] = useState<Record<string, string>>({});
-  const [taskId, setTaskId] = useState(tasks[0].id);
+  const [taskId, setTaskId] = useState(initialTaskId || tasks[0].id);
   const [inclusion, setInclusion] = useState("");
   const [exclusion, setExclusion] = useState("");
   const [outcome, setOutcome] = useState("");
@@ -164,16 +175,60 @@ export default function ResearchWorkbench({
   const [pathologyPlatform, setPathologyPlatform] = useState<PathologyImagingGradeResult | null>(null);
   const [workflowReady, setWorkflowReady] = useState(false);
   const [clinicalQuestion, setClinicalQuestion] = useState<ClinicalQuestion>(() => defaultClinicalQuestion());
+  const [batchRadiomicsImages, setBatchRadiomicsImages] = useState<BatchImageItem[]>([]);
+
+  useEffect(() => {
+    if (!batchPatients.length || moduleKey !== "imaging") {
+      setBatchRadiomicsImages([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const loaded = await Promise.all(
+        batchPatients.map(async (p) => {
+          const meta = [p.gradeLabel, p.pciScore != null ? `PCI ${p.pciScore}/36` : ""].filter(Boolean).join(" · ");
+          const volumeId = p.niiVolumeId || getFollowUpBatchCase(p.id)?.niiVolumeId;
+          const batchCase = getFollowUpBatchCase(p.id);
+          const backgroundVolumeId = p.ctVolumeId || batchCase?.ctVolumeId;
+          if (volumeId) {
+            return {
+              id: p.id,
+              label: `${p.name}（${p.id}）`,
+              base64: "",
+              volumeId,
+              backgroundVolumeId: backgroundVolumeId ?? undefined,
+              meta,
+            };
+          }
+          const base64 = p.examId ? (await loadPathologyImage(p.examId)) || "" : "";
+          return {
+            id: p.id,
+            label: `${p.name}（${p.id}）`,
+            base64,
+            meta,
+          };
+        }),
+      );
+      if (!cancelled) {
+        setBatchRadiomicsImages(
+          loaded.filter((img) => img.volumeId || hasAnnotatedImage(img.base64)),
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [batchPatients, moduleKey]);
 
   useEffect(() => {
     let cancelled = false;
     async function bootstrapWorkflow() {
       const ctx = getWorkflowContext();
       const pendingDicom = getPendingDicomFiles();
-      if (pendingDicom.length) {
+      if (pendingDicom.length && !batchRoiMode) {
         setDicomFiles(filesToUploadFiles(pendingDicom));
       }
-      if (ctx.pathology) {
+      if (ctx.pathology && !batchRoiMode) {
         const hydrated = await hydratePathologyImagingResult(ctx.pathology);
         if (!cancelled && hydrated) {
           setPathologyPlatform(hydrated);
@@ -188,7 +243,7 @@ export default function ResearchWorkbench({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [batchRoiMode]);
 
   const task = tasks.find((t) => t.id === taskId) ?? tasks[0];
   const isGradeDicomTask = GRADE_DICOM_TASKS.has(taskId);
@@ -358,7 +413,29 @@ export default function ResearchWorkbench({
 
       {linkedBanner}
 
-      <WorkflowContextBanner />
+      {batchPatients.length ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={
+            moduleKey === "imaging"
+              ? batchRoiMode
+                ? `批量预勾画 ROI · ${batchRadiomicsImages.length} 例（跳过智能分析接口）`
+                : `已从患者库批量带入 ${batchPatients.length} 例（含标注图 ${batchRadiomicsImages.length} 例）`
+              : `已从患者库批量带入 ${batchPatients.length} 例，用于临床及病理数据分析`
+          }
+          description={
+            moduleKey === "imaging"
+              ? batchRoiMode
+                ? "下方组学流程已自动进入 ROI 步骤，可直接点击「提取特征」。"
+                : "可在下方影像组学流程中用 ↑ / ↓ 翻阅各例标注图"
+              : "已选病例将用于病理分级相关因素、生存分析、预后模型等结构化分析任务"
+          }
+        />
+      ) : null}
+
+      {!batchRoiMode ? <WorkflowContextBanner /> : null}
 
       <ClinicalQuestionPanel
         value={clinicalQuestion}
@@ -457,7 +534,9 @@ export default function ResearchWorkbench({
             <RadiomicsPipeline
               accent={colors.accent}
               light={colors.light}
-              annotatedImageBase64={radiomicsAnnotatedImage}
+              annotatedImageBase64={batchRoiMode ? null : radiomicsAnnotatedImage}
+              batchImages={batchRadiomicsImages}
+              batchRoiMode={batchRoiMode}
               pathologyGrade={radiomicsPathologyGrade}
               clinicalQuestion={clinicalQuestion}
               onComplete={handleRadiomicsComplete}
@@ -496,7 +575,7 @@ export default function ResearchWorkbench({
             </div>
           ) : null}
 
-          {pathologyPlatform ? (
+          {pathologyPlatform && !(batchRoiMode && isRadiomicsTask) ? (
             <PathologyPlatformPanel data={pathologyPlatform} imageBase64={gradeImage} light={colors.light} />
           ) : null}
 
