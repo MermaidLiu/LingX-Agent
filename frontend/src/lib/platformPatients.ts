@@ -2,6 +2,8 @@ import { MOCK_PATIENTS, type PlatformPatient } from "../data/platformMock";
 
 const STORAGE_KEY = "pmp_platform_patients";
 
+export const PLATFORM_PATIENTS_UPDATED_EVENT = "pmp-platform-patients-updated";
+
 export function loadPatients(): PlatformPatient[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -17,6 +19,7 @@ export function loadPatients(): PlatformPatient[] {
 
 export function savePatients(patients: PlatformPatient[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(patients));
+  window.dispatchEvent(new CustomEvent(PLATFORM_PATIENTS_UPDATED_EVENT));
 }
 
 export function createEmptyPatient(): PlatformPatient {

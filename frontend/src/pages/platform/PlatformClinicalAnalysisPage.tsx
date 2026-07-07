@@ -64,7 +64,7 @@ export default function PlatformClinicalAnalysisPage() {
         saveClinicalDataset({
           ...buildClinicalDatasetFromFollowUpCases(
             followUpBatch.cases,
-            `随访批量 · ${followUpBatch.excelFileName}`,
+            `随访批量 · ${followUpBatch.excelFileName || followUpBatch.zipFileName || "队列"}`,
           ),
           id: RESEARCH_COHORT_DATASET_ID,
         });

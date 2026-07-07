@@ -1,5 +1,5 @@
-import { ExperimentOutlined, LeftOutlined, RightOutlined, UploadOutlined } from "@ant-design/icons";
-import { App, Button, Col, Form, Input, InputNumber, Row, Select, Space, Tag, Typography, Upload } from "antd";
+import { ExperimentOutlined, FileImageOutlined, LeftOutlined, PlusOutlined, RightOutlined } from "@ant-design/icons";
+import { App, Button, Col, DatePicker, Form, Input, InputNumber, Row, Select, Space, Tag, Typography, Upload } from "antd";
 import type { UploadFile } from "antd/es/upload/interface";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
@@ -33,6 +33,7 @@ export default function PlatformWorkflowPage() {
       gender: wf.patient_base_info.gender || undefined,
       department: wf.patient_base_info.department,
       medicalRecordId: wf.patient_base_info.medical_record_id,
+      examType: "腹盆 CT",
       clinicalDiagnosis: wf.interview_info.clinical_diagnosis,
       briefMedicalHistory: wf.interview_info.brief_medical_history,
       tnmStage: lab["TNM分期"] || "",
@@ -123,17 +124,28 @@ export default function PlatformWorkflowPage() {
 
       <div className="pmp-workflow-body">
         {activeStep.key === "input" ? (
-          <section className="pmp-section">
-            <Title level={4}>
-              <span className="pmp-section-num">1</span>
-              工作台 · 上传病例
-            </Title>
-            <Row gutter={[16, 16]}>
-              <Col xs={24} lg={14}>
-                <div className="pmp-card" style={{ padding: 20, marginBottom: 16 }}>
-                  <div className="pmp-panel-title">临床信息</div>
+          <section className="pmp-section pmp-imaging-intake">
+            <div className="pmp-imaging-intake-head">
+              <Title level={4} style={{ margin: 0 }}>
+                <span className="pmp-section-num">1</span>
+                影像输入与患者信息
+              </Title>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                填写临床资料并上传本例 DICOM / ZIP，进入智能分析后由 CT 接口返回分割与 PCI 评分
+              </Text>
+            </div>
+
+            <div className="pmp-card pmp-imaging-intake-card">
+              <Row gutter={[24, 24]}>
+                <Col xs={24} lg={14}>
+                  <div className="pmp-panel-title">患者与临床信息</div>
                   <Form form={clinicalForm} layout="vertical" size="middle" onValuesChange={() => persistClinicalFields()}>
                     <Row gutter={12}>
+                      <Col xs={24} sm={12}>
+                        <Form.Item name="medicalRecordId" label="患者 ID / 病历号">
+                          <Input placeholder="院内 ID" />
+                        </Form.Item>
+                      </Col>
                       <Col xs={24} sm={12}>
                         <Form.Item name="patientName" label="姓名">
                           <Input placeholder="患者姓名" />
@@ -149,14 +161,27 @@ export default function PlatformWorkflowPage() {
                           <Select allowClear options={[{ value: "男" }, { value: "女" }]} />
                         </Form.Item>
                       </Col>
-                      <Col xs={24} sm={12}>
-                        <Form.Item name="department" label="科室">
-                          <Input placeholder="如 妇科肿瘤科" />
+                      <Col xs={12} sm={6}>
+                        <Form.Item name="examDate" label="检查日期">
+                          <DatePicker style={{ width: "100%" }} placeholder="选择日期" />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={12} sm={6}>
+                        <Form.Item name="examType" label="检查类型">
+                          <Select
+                            allowClear
+                            options={[
+                              { value: "腹盆 CT" },
+                              { value: "胸部 CT" },
+                              { value: "PET-CT" },
+                              { value: "MRI" },
+                            ]}
+                          />
                         </Form.Item>
                       </Col>
                       <Col xs={24} sm={12}>
-                        <Form.Item name="medicalRecordId" label="病历号">
-                          <Input placeholder="院内病历号" />
+                        <Form.Item name="department" label="科室">
+                          <Input placeholder="如 妇科肿瘤科" />
                         </Form.Item>
                       </Col>
                       <Col xs={24}>
@@ -174,36 +199,25 @@ export default function PlatformWorkflowPage() {
                           <Input placeholder="cT2N1M0" />
                         </Form.Item>
                       </Col>
-                      <Col xs={24}>
-                        <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
-                          实验室指标
-                        </Text>
-                      </Col>
-                      <Col xs={8} sm={8}>
+                      <Col xs={8} sm={5}>
                         <Form.Item name="cea" label="CEA">
                           <Input placeholder="ng/mL" />
                         </Form.Item>
                       </Col>
-                      <Col xs={8} sm={8}>
+                      <Col xs={8} sm={5}>
                         <Form.Item name="ca125" label="CA125">
                           <Input placeholder="U/mL" />
                         </Form.Item>
                       </Col>
-                      <Col xs={8} sm={8}>
+                      <Col xs={8} sm={6}>
                         <Form.Item name="ca19_9" label="CA19-9">
                           <Input placeholder="U/mL" />
                         </Form.Item>
                       </Col>
-                      <Col xs={24}>
-                        <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 4 }}>
-                          治疗与手术信息
-                        </Text>
-                      </Col>
-                      <Col xs={24} sm={12}>
+                      <Col xs={24} sm={8}>
                         <Form.Item name="treatmentMethod" label="治疗方式">
                           <Select
                             allowClear
-                            placeholder="选择或输入"
                             options={[
                               { value: "CRS+HIPEC" },
                               { value: "单纯CRS" },
@@ -214,93 +228,78 @@ export default function PlatformWorkflowPage() {
                           />
                         </Form.Item>
                       </Col>
-                      <Col xs={12} sm={6}>
+                      <Col xs={12} sm={4}>
                         <Form.Item name="surgeryNumber" label="第几次手术">
-                          <Select
-                            allowClear
-                            options={[
-                              { value: "第1次" },
-                              { value: "第2次" },
-                              { value: "第3次" },
-                              { value: "≥第4次" },
-                            ]}
-                          />
+                          <Select allowClear options={[{ value: "第1次" }, { value: "第2次" }, { value: "第3次" }]} />
                         </Form.Item>
                       </Col>
-                      <Col xs={12} sm={6}>
-                        <Form.Item name="ivChemotherapy" label="是否静脉化疗">
+                      <Col xs={12} sm={4}>
+                        <Form.Item name="ivChemotherapy" label="静脉化疗">
                           <Select allowClear options={[{ value: "是" }, { value: "否" }]} />
                         </Form.Item>
                       </Col>
-                      <Col xs={12} sm={6}>
-                        <Form.Item name="ccScore" label="CC评分">
-                          <Select
-                            allowClear
-                            options={[
-                              { value: "CC-0" },
-                              { value: "CC-1" },
-                              { value: "CC-2" },
-                            ]}
-                          />
+                      <Col xs={12} sm={4}>
+                        <Form.Item name="ccScore" label="CC 评分">
+                          <Select allowClear options={[{ value: "CC-0" }, { value: "CC-1" }, { value: "CC-2" }]} />
                         </Form.Item>
                       </Col>
                     </Row>
                   </Form>
-                </div>
-                <div className="pmp-card" style={{ padding: 20 }}>
-                  <Upload.Dragger
-                    multiple
-                    accept={ACCEPT}
-                    fileList={uploadFiles}
-                    beforeUpload={() => false}
-                    onChange={({ fileList }) => setUploadFiles(fileList)}
-                  >
-                    <p className="ant-upload-drag-icon">
-                      <UploadOutlined style={{ fontSize: 36, color: "#1677ff" }} />
-                    </p>
-                    <Paragraph>拖拽或点击上传本例 DICOM / ZIP</Paragraph>
-                    <Text type="secondary">单例影像 · 进入智能分析后调用 CT 合并接口（分割 + PCI）</Text>
-                  </Upload.Dragger>
-                  {uploadFiles.length > 0 ? (
-                    <div style={{ marginTop: 12 }}>
-                      {uploadFiles.map((f) => (
-                        <Tag key={f.uid} style={{ marginBottom: 4 }}>
-                          {f.name}
+                </Col>
+
+                <Col xs={24} lg={10}>
+                  <div className="pmp-panel-title">影像文件</div>
+                  <div className="pmp-imaging-files-row">
+                    {uploadFiles.map((f) => (
+                      <div key={f.uid} className="pmp-imaging-file-thumb" title={f.name}>
+                        <FileImageOutlined style={{ fontSize: 22, color: "#1677ff" }} />
+                        <span className="pmp-imaging-file-thumb-name">{f.name}</span>
+                        <Tag color="blue" style={{ margin: 0, fontSize: 10 }}>
+                          {/\.zip$/i.test(f.name) ? "ZIP" : "DICOM"}
                         </Tag>
-                      ))}
-                    </div>
+                      </div>
+                    ))}
+                    <Upload
+                      multiple
+                      accept={ACCEPT}
+                      showUploadList={false}
+                      beforeUpload={() => false}
+                      onChange={({ fileList }) => setUploadFiles(fileList)}
+                    >
+                      <button type="button" className="pmp-imaging-file-add">
+                        <PlusOutlined />
+                        <span>上传影像</span>
+                      </button>
+                    </Upload>
+                  </div>
+                  <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 12 }}>
+                    支持 .dcm / .dicom / .zip。单例 DICOM 进入智能分析后调用 CT 合并接口（分割 + PCI）。
+                  </Paragraph>
+                  <Paragraph type="secondary" style={{ fontSize: 12 }}>
+                    批量预勾画 ROI + 临床 Excel 请前往 <Link to="/db/follow-up">随访队列</Link> 或{" "}
+                    <Link to="/knowledge">科研延伸</Link> 导入。
+                  </Paragraph>
+                  {getPendingCaseFileNames().length > 0 ? (
+                    <AlertLike text={`已缓存 ${getPendingCaseFileNames().length} 个文件，可直接开始智能分析`} />
                   ) : null}
                   <Button
                     type="primary"
                     size="large"
                     block
-                    style={{ marginTop: 16 }}
+                    className="pmp-imaging-start-btn"
                     icon={<ExperimentOutlined />}
                     onClick={goToAnalysis}
                   >
-                    智能分析
+                    开始智能分析
                   </Button>
-                  <Link to="/" style={{ display: "block", marginTop: 8, textAlign: "center" }}>
-                    <Button block>或使用智能对话分析</Button>
+                  <Link to="/chat" style={{ display: "block", marginTop: 8 }}>
+                    <Button block type="link">
+                      或使用智能对话入口
+                    </Button>
                   </Link>
-                </div>
-              </Col>
-              <Col xs={24} lg={10}>
-                <div className="pmp-card" style={{ padding: 16 }}>
-                  <div className="pmp-panel-title">说明</div>
-                  <Paragraph type="secondary" style={{ fontSize: 13 }}>
-                    工作台面向单例患者：填写临床信息并上传 DICOM/ZIP，进入智能分析后由 CT 接口返回分割勾画与 PCI 报告。
-                  </Paragraph>
-                  <Paragraph type="secondary" style={{ fontSize: 13 }}>
-                    批量预勾画影像 + 临床 Excel 导入请前往{" "}
-                    <Link to="/db/follow-up">随访队列</Link>。
-                  </Paragraph>
-                  {getPendingCaseFileNames().length > 0 ? (
-                    <AlertLike text={`当前已缓存 ${getPendingCaseFileNames().length} 个文件，可直接进入智能分析`} />
-                  ) : null}
-                </div>
-              </Col>
-            </Row>
+                </Col>
+              </Row>
+            </div>
           </section>
         ) : null}
 
@@ -308,10 +307,10 @@ export default function PlatformWorkflowPage() {
           <section className="pmp-section" style={{ background: "#f8fafc", borderRadius: 12 }}>
             <Title level={4}>
               <span className="pmp-section-num">2</span>
-              智能分析 · 影像诊断分析
+              智能分析与诊断
             </Title>
             <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-              完成影像+临床联合分析后，平台将输出综合报告与 NCCN/CSCO 指南治疗建议，确认后可加入随访队列。
+              CT 接口返回分割勾画图与 PCI 评分；确认后可生成指南治疗建议并加入随访队列。
             </Paragraph>
             <Button type="primary" size="large" icon={<ExperimentOutlined />} onClick={goToAnalysis}>
               进入智能分析

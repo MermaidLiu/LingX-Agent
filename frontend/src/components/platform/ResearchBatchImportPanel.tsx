@@ -18,6 +18,22 @@ type Props = {
   onImported?: (result: FollowUpBatchImportResult) => void;
 };
 
+function importModeLabel(hasZip: boolean, hasExcel: boolean): string {
+  if (hasZip && hasExcel) return "完整导入（临床 + 影像关联）";
+  if (hasExcel) return "仅临床 Excel";
+  return "仅预勾画 ZIP";
+}
+
+function successMessage(result: FollowUpBatchImportResult, hasZip: boolean, hasExcel: boolean): string {
+  if (hasZip && hasExcel) {
+    return `导入完成：${result.cases.length} 例临床，${result.matchedCount} 例已关联预勾画影像`;
+  }
+  if (hasExcel) {
+    return `临床导入完成：${result.cases.length} 例（${result.matchedCount} 例已有影像）`;
+  }
+  return `影像导入完成：${result.cases.length} 例，${result.matchedCount} 例已关联 ROI`;
+}
+
 export default function ResearchBatchImportPanel({
   variant = "research",
   onImported,
@@ -29,21 +45,21 @@ export default function ResearchBatchImportPanel({
   const [batch, setBatch] = useState<FollowUpBatchState | null>(() => loadFollowUpBatch());
 
   async function handleImport() {
-    if (!zipFile || !excelFile) {
-      message.warning("请同时选择预勾画 ZIP 与临床 Excel");
+    if (!zipFile && !excelFile) {
+      message.warning("请至少选择预勾画 ZIP 或临床 Excel 之一");
       return;
     }
     setLoading(true);
     try {
-      const result = await importFollowUpBatch(zipFile, excelFile);
+      const result = await importFollowUpBatch({ zipFile, excelFile });
       setBatch(result);
+      setZipFile(null);
+      setExcelFile(null);
       if (variant === "research") {
         activateResearchFromFollowUpBatch("research_upload");
       }
       onImported?.(result);
-      message.success(
-        `导入完成：${result.cases.length} 例临床，${result.matchedCount} 例已关联预勾画影像`,
-      );
+      message.success(successMessage(result, Boolean(zipFile), Boolean(excelFile)));
       if (result.warnings.length) message.warning(result.warnings[0]);
     } catch (e) {
       message.error(e instanceof Error ? e.message : "批量导入失败");
@@ -55,12 +71,14 @@ export default function ResearchBatchImportPanel({
   const title =
     variant === "followup"
       ? "批量导入 · 预勾画影像 + 临床记录"
-      : "批量导入科研数据（ZIP + Excel）";
+      : "批量导入科研数据（ZIP / Excel）";
 
   const hint =
     variant === "followup"
       ? "导入后可在下方队列查看，并通过表格右上角进入科研分析。"
       : "也可在患者数据库多选后批量进入；导入后下方直接展开三个分析模块。";
+
+  const canImport = Boolean(zipFile || excelFile);
 
   return (
     <div className="pmp-card pmp-research-batch-import" style={{ padding: 16, marginBottom: 16 }}>
@@ -69,8 +87,8 @@ export default function ResearchBatchImportPanel({
         {title}
       </div>
       <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
-        上传含 <Text code>.nii.gz</Text> 的 ZIP 与临床 Excel（含「就诊号」列）。
-        预勾画：<Text code>roi_就诊号-… .nii.gz</Text>；可选 CT 原图：<Text code>ct_就诊号… .nii.gz</Text>（预览叠加显示）。
+        支持三种方式：<Text strong>仅 Excel</Text>、<Text strong>仅 ZIP</Text>、或<Text strong>两者都传</Text>（推荐，自动关联就诊号）。
+        预勾画：<Text code>roi_就诊号-… .nii.gz</Text>；可选 CT 原图：<Text code>ct_就诊号… .nii.gz</Text>。
         病理分级：<Tag>1</Tag> 高级别，<Tag>0</Tag> 低级别。{hint}
       </Paragraph>
 
@@ -78,7 +96,7 @@ export default function ResearchBatchImportPanel({
         <Col xs={24} sm={12}>
           <Upload accept=".zip" showUploadList={false} beforeUpload={(f) => { setZipFile(f); return false; }}>
             <Button block icon={<CloudUploadOutlined />}>
-              {zipFile ? zipFile.name : "选择预勾画 ZIP"}
+              {zipFile ? zipFile.name : "选择预勾画 ZIP（可选）"}
             </Button>
           </Upload>
         </Col>
@@ -89,20 +107,33 @@ export default function ResearchBatchImportPanel({
             beforeUpload={(f) => { setExcelFile(f); return false; }}
           >
             <Button block icon={<FileExcelOutlined />}>
-              {excelFile ? excelFile.name : "选择临床 Excel"}
+              {excelFile ? excelFile.name : "选择临床 Excel（可选）"}
             </Button>
           </Upload>
         </Col>
       </Row>
 
-      <Button type="primary" block loading={loading} style={{ marginTop: 12 }} onClick={() => void handleImport()}>
+      {canImport ? (
+        <Tag color="blue" style={{ marginTop: 12 }}>
+          {importModeLabel(Boolean(zipFile), Boolean(excelFile))}
+        </Tag>
+      ) : null}
+
+      <Button
+        type="primary"
+        block
+        disabled={!canImport}
+        loading={loading}
+        style={{ marginTop: 12 }}
+        onClick={() => void handleImport()}
+      >
         导入
       </Button>
 
       {batch ? (
         <Space wrap style={{ marginTop: 12 }}>
-          <Tag color="blue">{batch.zipFileName}</Tag>
-          <Tag color="green">{batch.excelFileName}</Tag>
+          {batch.zipFileName ? <Tag color="blue">{batch.zipFileName}</Tag> : null}
+          {batch.excelFileName ? <Tag color="green">{batch.excelFileName}</Tag> : null}
           <Tag>{batch.cases.length} 例</Tag>
           <Tag color="cyan">已关联 {batch.matchedCount}</Tag>
         </Space>

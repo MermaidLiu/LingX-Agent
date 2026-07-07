@@ -76,7 +76,11 @@ export function activateResearchFromFollowUpBatch(
 
   const clinical = batch.cases.map(slimFromFollowUpCase);
   const imaging = batch.cases.filter((c) => c.niiVolumeId).map(slimFromFollowUpCase);
-  const label = `批量导入 · ${batch.excelFileName}（${batch.matchedCount}/${batch.cases.length} 已关联影像）`;
+  const labelParts = [
+    batch.excelFileName ? batch.excelFileName : null,
+    batch.zipFileName ? batch.zipFileName : null,
+  ].filter(Boolean);
+  const label = `批量导入 · ${labelParts.join(" + ") || "随访队列"}（${batch.matchedCount}/${batch.cases.length} 已关联影像）`;
 
   const ctx: ResearchBatchContext = {
     source,

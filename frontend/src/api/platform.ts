@@ -493,9 +493,18 @@ export async function platformPptGenerate(body: {
 }
 
 export async function platformStats() {
-  const { data } = await api.get<{ patients: number; imaging: number; dicom_estimate: number }>(
-    "/api/v1/platform/stats",
-  );
+  const { data } = await api.get<{
+    patients: number;
+    pending: number;
+    analyzing: number;
+    diagnosed: number;
+    graded: number;
+    with_annotation: number;
+    imaging: number;
+    annotation_models: number;
+    dicom_estimate: number;
+    prediction_accuracy_pct: number | null;
+  }>("/api/v1/platform/stats");
   return data;
 }
 

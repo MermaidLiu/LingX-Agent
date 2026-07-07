@@ -22,8 +22,8 @@ export type FollowUpBatchCase = {
 };
 
 export type FollowUpBatchState = {
-  excelFileName: string;
-  zipFileName: string;
+  excelFileName: string | null;
+  zipFileName: string | null;
   importedAt: string;
   cases: FollowUpBatchCase[];
   matchedCount: number;

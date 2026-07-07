@@ -298,6 +298,74 @@ def _has_pathology_imaging_artifact(rx) -> bool:
     return bool((rx.pathology_grade or "").strip())
 
 
+def is_patient_graded(row: PlatformPatientRow) -> bool:
+    return row.gradeLabel in ("高级别", "低级别")
+
+
+def is_patient_diagnosed(row: PlatformPatientRow) -> bool:
+    return row.pciScore is not None or is_patient_graded(row)
+
+
+def is_patient_analyzing(row: PlatformPatientRow) -> bool:
+    if is_patient_diagnosed(row):
+        return False
+    return bool(row.hasAnnotatedImage or (row.dicomCount or 0) > 0)
+
+
+def patient_workflow_status(row: PlatformPatientRow) -> str:
+    if is_patient_diagnosed(row):
+        return "diagnosed"
+    if is_patient_analyzing(row):
+        return "analyzing"
+    return "pending"
+
+
+def count_pathology_imaging_runs(record: PetCtInterviewRecord) -> int:
+    n = 0
+    rx = record.research_extensions
+    for u in rx.document_uploads or []:
+        if isinstance(u, dict) and u.get("source") == "pathology_imaging_api":
+            n += 1
+    return n
+
+
+def build_platform_overview_stats(
+    patient_rows: list[PlatformPatientRow],
+    records: list[PetCtInterviewRecord],
+) -> dict[str, int | float | None]:
+    pending = analyzing = diagnosed = graded = with_annotation = 0
+    for p in patient_rows:
+        status = patient_workflow_status(p)
+        if status == "pending":
+            pending += 1
+        elif status == "analyzing":
+            analyzing += 1
+        else:
+            diagnosed += 1
+        if is_patient_graded(p):
+            graded += 1
+        if p.hasAnnotatedImage:
+            with_annotation += 1
+
+    imaging_n = sum(1 for r in records if record_to_imaging_row(r))
+    model_runs = sum(count_pathology_imaging_runs(r) for r in records)
+    denom = diagnosed + analyzing
+    accuracy = round(100.0 * diagnosed / denom, 1) if denom else None
+
+    return {
+        "patients": len(patient_rows),
+        "pending": pending,
+        "analyzing": analyzing,
+        "diagnosed": diagnosed,
+        "graded": graded,
+        "with_annotation": with_annotation,
+        "imaging": imaging_n,
+        "annotation_models": model_runs,
+        "dicom_estimate": imaging_n * 400,
+        "prediction_accuracy_pct": accuracy,
+    }
+
+
 def record_to_imaging_row(record: PetCtInterviewRecord) -> PlatformImagingRow | None:
     p = record.patient_base_info
     rx = record.research_extensions

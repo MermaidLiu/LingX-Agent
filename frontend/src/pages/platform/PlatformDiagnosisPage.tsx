@@ -1,5 +1,5 @@
-import { DatabaseOutlined, DownloadOutlined, ExperimentOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
-import { App, Alert, Button, Col, Collapse, Empty, Row, Space, Spin, Table, Tag, Typography } from "antd";
+import { DatabaseOutlined, DownloadOutlined, ReloadOutlined, UploadOutlined } from "@ant-design/icons";
+import { App, Alert, Button, Col, Collapse, Empty, Progress, Row, Space, Spin, Table, Tabs, Tag, Typography } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { platformSavePathologyAnalysis, platformDownloadAnnotationDataset } from "../../api/platform";
@@ -46,55 +46,8 @@ import { buildPciConclusion, normalizePciRegions, pciRegionScoreTone, sumPciRegi
 
 const { Title, Paragraph, Text } = Typography;
 
-function gradeColor(label: string): "red" | "green" | "blue" | "muted" {
-  if (!label || label === "—" || label === "待判定") return "muted";
-  if (label.includes("高")) return "red";
-  if (label.includes("低")) return "green";
-  return "blue";
-}
-
 function getPci(result: PathologyImagingGradeResult): PciScoreResult | undefined {
   return result.pci ?? (result.raw?.pci as PciScoreResult | undefined);
-}
-
-function formatPrimaryResult(result: PathologyImagingGradeResult): string {
-  const pci = getPci(result);
-  const regions = pci ? normalizePciRegions(pci) : [];
-  const total = pci?.pci_score ?? (regions.length ? sumPciRegions(regions) : null);
-  if (total != null) return `PCI ${total}/36`;
-  if (pci?.slice_scores?.length) {
-    const maxSc = Math.max(...pci.slice_scores.map((s) => s.sc ?? 0));
-    return maxSc > 0 ? `sc 最高 ${maxSc}` : "sc 已加载";
-  }
-  if (pci?.status === "error") return "PCI 评分失败";
-  if (pci?.status === "pending") return "分割完成 · PCI 待路径";
-  if (pci?.status === "skipped") return "分割完成 · 待 PCI";
-  if (pci?.status === "ok" && pci.pci_score == null) return "PCI 接口已响应";
-  const grade = result.grade_label?.trim();
-  if (grade && grade !== "—" && grade !== "待判定" && !grade.startsWith("PCI")) return grade;
-  if (hasAnnotatedImage(result.result_image_base64)) return "分割完成 · 待 PCI";
-  if (result.status === "error") return "分析失败";
-  return "待评分";
-}
-
-function formatSingleCaseGrade(label: string, result?: PathologyImagingGradeResult): string {
-  if (result) {
-    const primary = formatPrimaryResult(result);
-    if (primary !== "待评分") return primary;
-  }
-  const t = label.trim();
-  if (!t || t === "—" || t === "待判定") return "分割完成 · 待 PCI";
-  return t;
-}
-
-function primaryGradeColor(result: PathologyImagingGradeResult): "red" | "green" | "blue" | "muted" {
-  const pci = getPci(result);
-  if (pci?.pci_score != null) {
-    if (pci.pci_score >= 20) return "red";
-    if (pci.pci_score <= 10) return "green";
-    return "blue";
-  }
-  return gradeColor(formatPrimaryResult(result));
 }
 
 function splitMessageParts(message: string): string[] {
@@ -116,6 +69,120 @@ function splitMessageParts(message: string): string[] {
     .filter(Boolean)
     .filter((s) => !noise.some((n) => s.includes(n)))
     .filter((s, i, arr) => arr.indexOf(s) === i);
+}
+
+type DetectionFinding = { label: string; detail: string; score: number };
+
+function buildDetectionFindings(pci: PciScoreResult | undefined): DetectionFinding[] {
+  if (!pci) return [];
+  const regions = normalizePciRegions(pci);
+  const positive = regions.filter((r) => (r.score ?? 0) > 0);
+  if (positive.length) {
+    return positive.map((r) => ({
+      label: r.label,
+      detail: `PCI 区域评分 ${r.score ?? "—"}`,
+      score: r.score ?? 0,
+    }));
+  }
+  const slices = pci.slice_scores?.filter((s) => (s.sc ?? 0) > 0) ?? [];
+  if (slices.length) {
+    return [
+      {
+        label: "逐层 sc 阳性",
+        detail: `${slices.length} 层 sc > 0`,
+        score: Math.max(...slices.map((s) => s.sc ?? 0)),
+      },
+    ];
+  }
+  return [];
+}
+
+function AnalysisResultsSidebar({
+  result,
+  pci,
+}: {
+  result: PathologyImagingGradeResult;
+  pci?: PciScoreResult;
+}) {
+  const findings = buildDetectionFindings(pci);
+  const totalScore = pci?.pci_score ?? (pci ? sumPciRegions(normalizePciRegions(pci)) : null);
+  const conclusion = pci ? buildPciConclusion(pci) : "";
+  const positivePct =
+    pci?.positive_rate != null
+      ? pci.positive_rate > 1
+        ? Math.min(100, pci.positive_rate)
+        : pci.positive_rate * 100
+      : totalScore != null
+        ? Math.min(100, (totalScore / 36) * 100)
+        : result.confidence != null
+          ? result.confidence * 100
+          : null;
+
+  return (
+    <div className="pmp-analysis-sidebar">
+      <div className="pmp-analysis-sidebar-block">
+        <div className="pmp-panel-title">检测结果</div>
+        {findings.length ? (
+          <ul className="pmp-detection-list">
+            {findings.map((f) => (
+              <li key={f.label} className="pmp-detection-item">
+                <div>
+                  <Text strong>{f.label}</Text>
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {f.detail}
+                    </Text>
+                  </div>
+                </div>
+                <Tag color={f.score >= 3 ? "red" : f.score >= 1 ? "orange" : "blue"}>{f.score}</Tag>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {hasAnnotatedImage(result.result_image_base64) ? "分割完成，等待 PCI 区域评分解析" : "分析完成后显示"}
+          </Text>
+        )}
+      </div>
+
+      <div className="pmp-analysis-sidebar-block">
+        <div className="pmp-panel-title">整体评分</div>
+        <div className="pmp-score-metrics">
+          <div className="pmp-score-metric">
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              PCI 总分
+            </Text>
+            <div className="pmp-score-metric-value">{totalScore != null ? `${totalScore}/36` : "—"}</div>
+            {positivePct != null ? (
+              <Progress percent={Math.round(positivePct)} size="small" strokeColor="#1677ff" />
+            ) : null}
+          </div>
+          {result.confidence != null ? (
+            <div className="pmp-score-metric">
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                模型置信度
+              </Text>
+              <div className="pmp-score-metric-value">{(result.confidence * 100).toFixed(0)}%</div>
+            </div>
+          ) : null}
+          {pci?.is_positive != null ? (
+            <Tag color={pci.is_positive ? "red" : "green"} style={{ marginTop: 8 }}>
+              {pci.is_positive ? "PCI 阳性" : "PCI 阴性"}
+            </Tag>
+          ) : null}
+        </div>
+      </div>
+
+      {conclusion ? (
+        <div className="pmp-analysis-sidebar-block">
+          <div className="pmp-panel-title">AI 诊断建议</div>
+          <Paragraph style={{ fontSize: 13, marginBottom: 0, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+            {conclusion}
+          </Paragraph>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function PciSliceScoresTable({ slices }: { slices: NonNullable<PciScoreResult["slice_scores"]> }) {
@@ -288,10 +355,10 @@ function PathologyResultPanel({
 }) {
   const { message: msgApi } = App.useApp();
   const [downloading, setDownloading] = useState(false);
+  const [activeTab, setActiveTab] = useState("detect");
   const isError = result.status === "error";
   const isSkipped = result.status === "skipped";
   const pci = getPci(result);
-  const fromCache = Boolean(result.raw?.cache_hit);
   const presegmented = isPresegmentedResult(result);
   const niiVolumeId =
     (result.raw?.nii_volume_id as string | undefined) || getPresegmentedNiiVolumeId() || "";
@@ -328,150 +395,154 @@ function PathologyResultPanel({
 
   return (
     <div className="pmp-diagnosis-results">
-      <Row gutter={[20, 20]}>
-        <Col xs={24} xl={10}>
-            <div className="pmp-card pmp-diagnosis-summary">
-            <div className="pmp-panel-title">本例影像分析</div>
-            {fromCache ? (
-              <Tag color="green" style={{ marginBottom: 8 }}>
-                已使用缓存结果
-              </Tag>
-            ) : null}
-            {presegmented ? (
-              <Tag color="cyan" style={{ marginBottom: 8 }}>
-                预勾画 NIfTI · 未调用 CT 接口
-              </Tag>
-            ) : null}
-            <Paragraph type="secondary" style={{ fontSize: 12, marginTop: -4, marginBottom: 12 }}>
-              {presegmented
-                ? "ZIP 内 .nii.gz 已在本地渲染；PCI / 病理结论来自临床 Excel（如有）。"
-                : "CT 合并接口一次返回：分割勾画图（ctResults）+ PCI 报告（pci）。"}
-            </Paragraph>
-            {isError ? (
-              <Alert type="error" message={result.message || "影像诊断分析接口调用失败"} showIcon />
-            ) : isSkipped ? (
-              <Alert type="warning" message={result.message} showIcon />
-            ) : (
-              <>
-                <div className="pmp-diagnosis-grade-row">
-                  <span className={`pmp-diagnosis-grade pmp-diagnosis-grade--${primaryGradeColor(result)}`}>
-                    {formatSingleCaseGrade(result.grade_label || "", result)}
-                  </span>
-                  {result.confidence != null ? (
-                    <span className="pmp-diagnosis-confidence">置信度 {(result.confidence * 100).toFixed(0)}%</span>
-                  ) : null}
-                </div>
-                {pci ? (
-                  <PciScorePanel pci={pci} compact />
-                ) : hasAnnotatedImage(result.result_image_base64) ? (
-                  <Alert
-                    type="info"
-                    showIcon
-                    style={{ marginBottom: 12 }}
-                    message="分割图已返回"
-                    description="PCI 报告字段未解析，请确认 CT 接口响应含 pci 对象（pciScore、conclusion 等）。"
-                  />
-                ) : null}
-                {!pci && messageParts.length > 0 ? (
-                  <ul className="pmp-diagnosis-bullets">
-                    {messageParts.map((part) => (
-                      <li key={part}>{part}</li>
-                    ))}
-                  </ul>
-                ) : null}
-              </>
-            )}
-            <div className="pmp-diagnosis-meta">
-              <span className="pmp-diagnosis-meta-item">{result.dicom_count} 张 DICOM</span>
-              <span className={`pmp-diagnosis-meta-item pmp-diagnosis-meta-item--${isError ? "err" : "ok"}`}>
-                {result.status}
-              </span>
-              {result.saved ? <span className="pmp-diagnosis-meta-item">已入库</span> : null}
-              {result.exam_id ? <span className="pmp-diagnosis-meta-item">{result.exam_id}</span> : null}
+      {presegmented ? (
+        <Tag color="cyan" style={{ marginBottom: 12 }}>
+          预勾画 NIfTI · 未调用 CT 接口
+        </Tag>
+      ) : null}
+
+      {isError ? (
+        <Alert type="error" message={result.message || "影像诊断分析接口调用失败"} showIcon />
+      ) : isSkipped ? (
+        <Alert type="warning" message={result.message} showIcon />
+      ) : (
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          className="pmp-analysis-tabs"
+          items={[
+            {
+              key: "detect",
+              label: "病灶检测",
+              children: (
+                <Row gutter={[20, 20]}>
+                  <Col xs={24} xl={15}>
+                    <div className="pmp-card pmp-diagnosis-viewer pmp-diagnosis-viewer--hero">
+                      <div className="pmp-diagnosis-viewer-head">
+                        <div>
+                          <div className="pmp-panel-title" style={{ marginBottom: 4 }}>
+                            影像标注可视化
+                          </div>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {presegmented
+                              ? "↑ / ↓ 翻阅 NIfTI 勾画轴位"
+                              : "← / → 翻阅 CT 接口返回的分割切片（ctResults）"}
+                          </Text>
+                        </div>
+                        <Space>
+                          <Tag>{result.dicom_count} 张 DICOM</Tag>
+                          {result.exam_id ? <Tag color="blue">{result.exam_id}</Tag> : null}
+                        </Space>
+                      </div>
+                      {presegmented && niiVolumeId ? (
+                        <NiiSliceViewer volumeId={niiVolumeId} />
+                      ) : (
+                        <AnnotationSliceViewer result={result} />
+                      )}
+                    </div>
+                  </Col>
+                  <Col xs={24} xl={9}>
+                    <div className="pmp-card pmp-analysis-sidebar-card">
+                      <AnalysisResultsSidebar result={result} pci={pci} />
+                      {!pci && messageParts.length > 0 ? (
+                        <ul className="pmp-diagnosis-bullets" style={{ marginTop: 12 }}>
+                          {messageParts.map((part) => (
+                            <li key={part}>{part}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </div>
+                    <Space wrap style={{ marginTop: 16 }}>
+                      <Button type="primary" onClick={() => setActiveTab("pci")}>
+                        查看 PCI 详情
+                      </Button>
+                      <Button
+                        onClick={() =>
+                          document.getElementById("pmp-care-pathway")?.scrollIntoView({ behavior: "smooth" })
+                        }
+                      >
+                        生成报告
+                      </Button>
+                    </Space>
+                  </Col>
+                </Row>
+              ),
+            },
+            {
+              key: "pci",
+              label: "PCI 评分",
+              children: pci ? (
+                <PciScorePanel pci={pci} />
+              ) : (
+                <Alert type="info" showIcon message="PCI 报告未返回" description="请确认 CT 接口响应含 pci 对象" />
+              ),
+            },
+            {
+              key: "quant",
+              label: "量化分析",
+              children: pci?.slice_scores?.length ? (
+                <PciSliceScoresTable slices={pci.slice_scores} />
+              ) : (
+                <Empty description="暂无逐层 sc 数据" />
+              ),
+            },
+          ]}
+        />
+      )}
+
+      {result.annotation_dataset_id ? (
+        <div className="pmp-card pmp-annotation-dataset" style={{ marginTop: 20 }}>
+          <div className="pmp-annotation-dataset-head">
+            <div>
+              <div className="pmp-panel-title">完整标注数据集</div>
+              <Paragraph type="secondary" style={{ fontSize: 13, margin: "6px 0 0" }}>
+                全部切片的勾画图、二值 mask 与 DICOM 空间元数据，可用于组学建模与分割训练。
+              </Paragraph>
+            </div>
+            <Button
+              type="primary"
+              size="large"
+              icon={<DownloadOutlined />}
+              loading={downloading}
+              onClick={() => void handleDownloadZip()}
+            >
+              下载 ZIP
+            </Button>
+          </div>
+          <div className="pmp-annotation-stats">
+            <div className="pmp-annotation-stat">
+              <div className="pmp-annotation-stat-value">{result.annotation_slice_count ?? 0}</div>
+              <div className="pmp-annotation-stat-label">annotated PNG</div>
+            </div>
+            <div className="pmp-annotation-stat">
+              <div className="pmp-annotation-stat-value">{result.annotation_slices_with_mask ?? 0}</div>
+              <div className="pmp-annotation-stat-label">含病灶 mask</div>
+            </div>
+            <div className="pmp-annotation-stat pmp-annotation-stat--wide">
+              <div className="pmp-annotation-stat-label">数据集 ID</div>
+              <div className="pmp-annotation-stat-id">{result.annotation_dataset_id}</div>
             </div>
           </div>
-        </Col>
+        </div>
+      ) : null}
 
-        <Col xs={24} xl={14}>
-          <div className="pmp-card pmp-diagnosis-viewer">
-            <div className="pmp-diagnosis-viewer-head">
-              <div>
-                <div className="pmp-panel-title" style={{ marginBottom: 4 }}>
-                  标注可视化
-                </div>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {presegmented
-                    ? "↑ / ↓ 或键盘 ArrowUp / ArrowDown 翻阅 NIfTI 勾画轴位"
-                    : "左右箭头或键盘 ← → 翻阅全部标注切片（ctResults）"}
-                </Text>
-              </div>
-            </div>
-            {presegmented && niiVolumeId ? (
-              <NiiSliceViewer volumeId={niiVolumeId} />
-            ) : (
-              <AnnotationSliceViewer result={result} />
-            )}
-          </div>
-        </Col>
-
-        {result.annotation_dataset_id ? (
-          <Col xs={24}>
-            <div className="pmp-card pmp-annotation-dataset">
-              <div className="pmp-annotation-dataset-head">
-                <div>
-                  <div className="pmp-panel-title">完整标注数据集</div>
-                  <Paragraph type="secondary" style={{ fontSize: 13, margin: "6px 0 0" }}>
-                    全部切片的勾画图、二值 mask 与 DICOM 空间元数据，可用于组学建模与分割训练。
-                  </Paragraph>
-                </div>
-                <Button
-                  type="primary"
-                  size="large"
-                  icon={<DownloadOutlined />}
-                  loading={downloading}
-                  onClick={() => void handleDownloadZip()}
-                >
-                  下载 ZIP
-                </Button>
-              </div>
-              <div className="pmp-annotation-stats">
-                <div className="pmp-annotation-stat">
-                  <div className="pmp-annotation-stat-value">{result.annotation_slice_count ?? 0}</div>
-                  <div className="pmp-annotation-stat-label">annotated PNG</div>
-                </div>
-                <div className="pmp-annotation-stat">
-                  <div className="pmp-annotation-stat-value">{result.annotation_slices_with_mask ?? 0}</div>
-                  <div className="pmp-annotation-stat-label">含病灶 mask</div>
-                </div>
-                <div className="pmp-annotation-stat pmp-annotation-stat--wide">
-                  <div className="pmp-annotation-stat-label">数据集 ID</div>
-                  <div className="pmp-annotation-stat-id">{result.annotation_dataset_id}</div>
-                </div>
-              </div>
-            </div>
-          </Col>
-        ) : null}
-
-        {result.raw && Object.keys(result.raw).length > 0 ? (
-          <Col xs={24}>
-            <div className="pmp-card" style={{ padding: 16 }}>
-              <Collapse
-                items={[
-                  {
-                    key: "raw",
-                    label: "接口返回字段解析",
-                    children: (
-                      <pre className="pmp-kb-modal-pre" style={{ maxHeight: 360 }}>
-                        {JSON.stringify(result.raw, null, 2)}
-                      </pre>
-                    ),
-                  },
-                ]}
-              />
-            </div>
-          </Col>
-        ) : null}
-      </Row>
+      {result.raw && Object.keys(result.raw).length > 0 ? (
+        <div className="pmp-card" style={{ padding: 16, marginTop: 16 }}>
+          <Collapse
+            items={[
+              {
+                key: "raw",
+                label: "接口返回字段解析",
+                children: (
+                  <pre className="pmp-kb-modal-pre" style={{ maxHeight: 360 }}>
+                    {JSON.stringify(result.raw, null, 2)}
+                  </pre>
+                ),
+              },
+            ]}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -675,21 +746,20 @@ export default function PlatformDiagnosisPage() {
   const showEmpty = !loading && !hydrating && !result && !hasPendingImagingFiles() && !hasSuccessfulPathologyResult();
 
   return (
-    <div className="pmp-section">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+    <div className="pmp-section pmp-diagnosis-page">
+      <div className="pmp-diagnosis-page-head">
         <div>
           <Title level={4} style={{ marginBottom: 8 }}>
-            <ExperimentOutlined style={{ marginRight: 8, color: "#1677ff" }} />
-            智能分析 · 影像诊断分析
+            <span className="pmp-section-num">2</span>
+            智能分析与诊断
           </Title>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            上传本例 DICOM，结合工作台临床信息与实验室指标（CEA、CA125、CA19-9）：输出分割/PCI → 影像报告 → 指南治疗建议 → 随访入队。
-            分析进行中可自由切换至其他页面，顶部会提示进度。
+            DICOM 分割与 PCI 评分由 CT 合并接口返回；下方可查看标注切片、PCI 详情与治疗建议。
           </Paragraph>
         </div>
-        <Space>
+        <Space wrap>
           <Link to="/workflow">
-            <Button>返回工作台</Button>
+            <Button>返回影像输入</Button>
           </Link>
           {result?.saved || savedToDb ? (
             <Link to="/db/patients">
@@ -735,7 +805,7 @@ export default function PlatformDiagnosisPage() {
           showIcon
           style={{ marginBottom: 12 }}
           message={jobState.message || "影像诊断分析进行中…"}
-          description="CT 合并接口一次返回分割图与 PCI（同学侧约 5 分钟）。相同文件再次分析将直接使用缓存。"
+          description="CT 合并接口一次返回分割图与 PCI（同学侧约 5 分钟）。"
         />
       ) : null}
 

@@ -47,6 +47,7 @@ from app.services.pathology_grade_cache import (
 from app.services.pathology_imaging_client import normalize_ct_api_payload, predict_grade_from_imaging
 from app.services.platform_adapters import (
     build_diagnosis,
+    build_platform_overview_stats,
     record_to_imaging_row,
     record_to_pathology_row,
     record_to_patient_row,
@@ -621,9 +622,6 @@ def platform_clinical_dataset_analyze(body: ClinicalDatasetAnalyzeBody) -> Clini
 @router.get("/stats")
 def platform_stats(db: Session = Depends(get_db)) -> dict[str, Any]:
     rows = pet_ct_case.list_all(db, limit=5000)
-    imaging_n = sum(1 for r in rows if record_to_imaging_row(pet_ct_case.orm_to_record(r)))
-    return {
-        "patients": len(rows),
-        "imaging": imaging_n,
-        "dicom_estimate": imaging_n * 400,
-    }
+    records = [pet_ct_case.orm_to_record(r) for r in rows]
+    patients = [record_to_patient_row(r) for r in records]
+    return build_platform_overview_stats(patients, records)

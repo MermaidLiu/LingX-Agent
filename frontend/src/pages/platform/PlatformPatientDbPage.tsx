@@ -3,12 +3,11 @@ import { App, Alert, Button, Dropdown, Input, Select, Space, Spin, Table, Tag, T
 import type { ColumnsType, TableRowSelection } from "antd/es/table/interface";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { platformListPatients, type PlatformPatient } from "../../api/platform";
+import { type PlatformPatient } from "../../api/platform";
 import PatientImagingModal, { ImagingViewButton } from "../../components/platform/PatientImagingModal";
 import { saveBatchSelection, type BatchOperationIntent } from "../../lib/platformBatchSelection";
 import { activateResearchFromPatients } from "../../lib/researchBatchContext";
-import { batchCasesToPlatformPatients, loadFollowUpBatch } from "../../lib/followUpBatchStore";
-import { loadPatients } from "../../lib/platformPatients";
+import { fetchMergedPlatformPatients } from "../../lib/platformPatientList";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -44,24 +43,15 @@ export default function PlatformPatientDbPage() {
   const fetchPatients = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await platformListPatients({
+      const data = await fetchMergedPlatformPatients({
         keyword,
         gradeLabel: gradeFilter,
         followUp: followUpOnly,
       });
-      const batch = loadFollowUpBatch();
-      if (batch?.cases.length) {
-        const map = new Map(data.map((p) => [p.id, p]));
-        for (const p of batchCasesToPlatformPatients(batch.cases)) {
-          if (!map.has(p.id)) map.set(p.id, p);
-        }
-        setRows(Array.from(map.values()));
-      } else {
-        setRows(data);
-      }
+      setRows(data);
     } catch {
-      setRows(loadPatients());
-      message.error("加载患者数据库失败，已显示本地缓存");
+      message.error("加载患者数据库失败");
+      setRows([]);
     } finally {
       setLoading(false);
     }

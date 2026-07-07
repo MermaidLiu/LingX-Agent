@@ -3,6 +3,7 @@ import PlatformLayout from "./layouts/PlatformLayout";
 import BasicLayout from "./layouts/BasicLayout";
 import DashboardHome from "./pages/DashboardHome";
 import PlatformChatPage from "./pages/platform/PlatformChatPage";
+import PlatformHomePage from "./pages/platform/PlatformHomePage";
 import PlatformClinicalAnalysisPage from "./pages/platform/PlatformClinicalAnalysisPage";
 import PlatformDiagnosisPage from "./pages/platform/PlatformDiagnosisPage";
 import PlatformImagingAnalysisPage from "./pages/platform/PlatformImagingAnalysisPage";
@@ -10,7 +11,7 @@ import PlatformImagingDbPage from "./pages/platform/PlatformImagingDbPage";
 import PlatformKnowledgeLibraryPage from "./pages/platform/PlatformKnowledgeLibraryPage";
 import PlatformMultimodalAnalysisPage from "./pages/platform/PlatformMultimodalAnalysisPage";
 import PlatformPatientDbPage from "./pages/platform/PlatformPatientDbPage";
-import PlatformPlaceholderPage from "./pages/platform/PlatformPlaceholderPage";
+import PlatformSettingsPage from "./pages/platform/PlatformSettingsPage";
 import PlatformResearchDataHubPage from "./pages/platform/PlatformResearchDataHubPage";
 import PlatformResearchExtensionPage from "./pages/platform/PlatformResearchExtensionPage";
 import PlatformResearchPublicationPage from "./pages/platform/PlatformResearchPublicationPage";
@@ -31,7 +32,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<PlatformLayout />}>
-        <Route index element={<PlatformChatPage />} />
+        <Route index element={<PlatformHomePage />} />
+        <Route path="chat" element={<PlatformChatPage />} />
         <Route path="workflow" element={<PlatformWorkflowPage />} />
         <Route path="db/patients" element={<PlatformPatientDbPage />} />
         <Route path="db/clinical" element={<Navigate to="/knowledge/data/clinical" replace />} />
@@ -54,7 +56,7 @@ export default function App() {
         <Route path="knowledge/library" element={<PlatformKnowledgeLibraryPage />} />
         <Route path="knowledge/publications" element={<PlatformResearchPublicationPage />} />
         <Route path="knowledge/ppt" element={<PlatformResearchPptPage />} />
-        <Route path="settings" element={<PlatformPlaceholderPage />} />
+        <Route path="settings" element={<PlatformSettingsPage />} />
       </Route>
 
       <Route path="/legacy" element={<BasicLayout />}>

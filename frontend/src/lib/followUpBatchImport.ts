@@ -25,6 +25,16 @@ export type FollowUpBatchImportResult = FollowUpBatchState & {
   warnings: string[];
 };
 
+export type FollowUpBatchImportInput = {
+  zipFile?: File | null;
+  excelFile?: File | null;
+};
+
+type ClinicalRow = Omit<
+  FollowUpBatchCase,
+  "niiVolumeId" | "niiFileName" | "ctVolumeId" | "ctFileName" | "importedAt"
+>;
+
 function cellStr(v: unknown): string {
   if (v == null) return "";
   return String(v).trim();
@@ -69,14 +79,75 @@ function inferDiagnosis(pathology: string): string {
   return pathology.slice(0, 40) || "待明确";
 }
 
+function stubCaseFromVisitId(visitId: string, importedAt: string): FollowUpBatchCase {
+  const id = padVisitId(visitId);
+  return {
+    visitId: id,
+    name: id,
+    gender: "",
+    age: "",
+    pciScore: null,
+    pathology: "",
+    gradeLabel: "未确定",
+    diagnosis: "待明确",
+    labs: {},
+    raw: {},
+    niiVolumeId: null,
+    niiFileName: null,
+    ctVolumeId: null,
+    ctFileName: null,
+    importedAt,
+  };
+}
+
+function clinicalRowToCase(row: ClinicalRow, importedAt: string): FollowUpBatchCase {
+  return {
+    ...row,
+    niiVolumeId: null,
+    niiFileName: null,
+    ctVolumeId: null,
+    ctFileName: null,
+    importedAt,
+  };
+}
+
+function mergeCase(existing: FollowUpBatchCase, incoming: FollowUpBatchCase): FollowUpBatchCase {
+  return {
+    ...existing,
+    ...incoming,
+    niiVolumeId: incoming.niiVolumeId ?? existing.niiVolumeId,
+    niiFileName: incoming.niiFileName ?? existing.niiFileName,
+    ctVolumeId: incoming.ctVolumeId ?? existing.ctVolumeId,
+    ctFileName: incoming.ctFileName ?? existing.ctFileName,
+    name: incoming.name && incoming.name !== incoming.visitId ? incoming.name : existing.name || incoming.name,
+    gender: incoming.gender || existing.gender,
+    age: incoming.age || existing.age,
+    pathology: incoming.pathology || existing.pathology,
+    gradeLabel: incoming.gradeLabel !== "未确定" ? incoming.gradeLabel : existing.gradeLabel,
+    diagnosis: incoming.diagnosis !== "待明确" ? incoming.diagnosis : existing.diagnosis,
+    pciScore: incoming.pciScore ?? existing.pciScore,
+    labs: { ...existing.labs, ...incoming.labs },
+    raw: { ...existing.raw, ...incoming.raw },
+    importedAt: incoming.importedAt,
+  };
+}
+
+function upsertCase(cases: FollowUpBatchCase[], incoming: FollowUpBatchCase): FollowUpBatchCase[] {
+  const idx = cases.findIndex((c) => visitIdsEqual(c.visitId, incoming.visitId));
+  if (idx < 0) return [...cases, incoming];
+  const next = [...cases];
+  next[idx] = mergeCase(cases[idx], incoming);
+  return next;
+}
+
 async function parseClinicalRows(
   file: File,
-): Promise<{ rows: Omit<FollowUpBatchCase, "niiVolumeId" | "niiFileName" | "ctVolumeId" | "ctFileName" | "importedAt">[]; sheetName: string }> {
+): Promise<{ rows: ClinicalRow[]; sheetName: string }> {
   const { matrix, sheetName, headerRowIndex } = await readClinicalExcelFile(file);
   if (matrix.length < headerRowIndex + 2) return { rows: [], sheetName };
 
   const headers = matrix[headerRowIndex].map((h) => cellStr(h));
-  const rows: Omit<FollowUpBatchCase, "niiVolumeId" | "niiFileName" | "ctVolumeId" | "ctFileName" | "importedAt">[] = [];
+  const rows: ClinicalRow[] = [];
 
   for (let i = headerRowIndex + 1; i < matrix.length; i++) {
     const line = matrix[i];
@@ -133,10 +204,7 @@ async function extractNiiFromZip(
   return out;
 }
 
-function findClinicalRow(
-  rows: Omit<FollowUpBatchCase, "niiVolumeId" | "niiFileName" | "ctVolumeId" | "ctFileName" | "importedAt">[],
-  roiVisitId: string,
-) {
+function findClinicalRow(rows: ClinicalRow[], roiVisitId: string) {
   return rows.find((r) => visitIdsEqual(r.visitId, roiVisitId));
 }
 
@@ -148,119 +216,154 @@ function mergePatients(existing: PlatformPatient[], incoming: PlatformPatient[])
   return Array.from(map.values());
 }
 
-export async function importFollowUpBatch(zipFile: File, excelFile: File): Promise<FollowUpBatchImportResult> {
-  const warnings: string[] = [];
-  const { rows: clinicalRows, sheetName } = await parseClinicalRows(excelFile);
-  if (!clinicalRows.length) throw new Error("Excel 中未解析到有效病例（需含就诊号或 ID 列）");
-  warnings.push(`已从工作表「${sheetName}」读取 ${clinicalRows.length} 例`);
+function finalizeBatchStats(cases: FollowUpBatchCase[]): Pick<FollowUpBatchState, "matchedCount" | "unmatchedVisitIds" | "unmatchedNiiFiles"> {
+  const unmatchedVisitIds = cases.filter((c) => !c.niiVolumeId).map((c) => c.visitId);
+  return {
+    matchedCount: cases.filter((c) => c.niiVolumeId).length,
+    unmatchedVisitIds,
+    unmatchedNiiFiles: [],
+  };
+}
 
-  const clinicalVisitIds = clinicalRows.map((r) => r.visitId);
-  const niiFiles = await extractNiiFromZip(zipFile, clinicalVisitIds);
-  if (!niiFiles.length) {
-    throw new Error("ZIP 中未找到 .nii / .nii.gz 预勾画文件");
+export async function importFollowUpBatch(input: FollowUpBatchImportInput): Promise<FollowUpBatchImportResult> {
+  const { zipFile, excelFile } = input;
+  if (!zipFile && !excelFile) {
+    throw new Error("请至少选择预勾画 ZIP 或临床 Excel 之一");
   }
 
+  const warnings: string[] = [];
   const importedAt = new Date().toISOString();
-  const fingerprint = `${zipFile.name}-${zipFile.size}-${excelFile.name}-${excelFile.size}`;
-  const cases: FollowUpBatchCase[] = clinicalRows.map((r) => ({
-    ...r,
-    niiVolumeId: null,
-    niiFileName: null,
-    ctVolumeId: null,
-    ctFileName: null,
-    importedAt,
-  }));
+  const existing = loadFollowUpBatch();
+  let cases: FollowUpBatchCase[] = existing?.cases ?? [];
+
+  let sheetName = "";
+  let clinicalRows: ClinicalRow[] = [];
+
+  if (excelFile) {
+    const parsed = await parseClinicalRows(excelFile);
+    clinicalRows = parsed.rows;
+    sheetName = parsed.sheetName;
+    if (!clinicalRows.length) {
+      throw new Error("Excel 中未解析到有效病例（需含就诊号或 ID 列）");
+    }
+    warnings.push(`已从工作表「${sheetName}」读取 ${clinicalRows.length} 例`);
+    for (const row of clinicalRows) {
+      cases = upsertCase(cases, clinicalRowToCase(row, importedAt));
+    }
+  }
+
+  const clinicalVisitIds = [
+    ...clinicalRows.map((r) => r.visitId),
+    ...cases.map((c) => c.visitId),
+  ];
 
   const unmatchedNiiFiles: string[] = [];
   let ctLinkedCount = 0;
 
-  for (const nii of niiFiles) {
-    if (!nii.visitId) {
-      unmatchedNiiFiles.push(nii.name);
-      continue;
-    }
-    const row = findClinicalRow(clinicalRows, nii.visitId);
-    if (!row) {
-      unmatchedNiiFiles.push(nii.name);
-      continue;
+  if (zipFile) {
+    const niiFiles = await extractNiiFromZip(zipFile, clinicalVisitIds);
+    if (!niiFiles.length) {
+      throw new Error("ZIP 中未找到 .nii / .nii.gz 预勾画文件");
     }
 
-    const vol = parseNiiVolume(
-      nii.name,
-      nii.data,
-      `followup-${fingerprint}-${nii.visitId}-${nii.name.replace(/\W+/g, "_")}`,
-    );
-    await cacheNiiVolume(vol);
-    const role = resolveNiiRole(nii.name, vol);
-    const idx = cases.findIndex((c) => visitIdsEqual(c.visitId, row.visitId));
-    if (idx < 0) continue;
+    const fingerprint = `${zipFile.name}-${zipFile.size}-${excelFile?.name ?? "no-excel"}-${excelFile?.size ?? 0}`;
 
-    if (role === "roi") {
-      cases[idx] = {
-        ...cases[idx],
-        niiVolumeId: vol.id,
-        niiFileName: nii.name,
-      };
-    } else {
-      cases[idx] = {
-        ...cases[idx],
-        ctVolumeId: vol.id,
-        ctFileName: nii.name,
-      };
-      ctLinkedCount++;
+    for (const nii of niiFiles) {
+      if (!nii.visitId) {
+        unmatchedNiiFiles.push(nii.name);
+        continue;
+      }
+
+      const vol = parseNiiVolume(
+        nii.name,
+        nii.data,
+        `followup-${fingerprint}-${nii.visitId}-${nii.name.replace(/\W+/g, "_")}`,
+      );
+      await cacheNiiVolume(vol);
+      const role = resolveNiiRole(nii.name, vol);
+      const visitId = padVisitId(nii.visitId);
+
+      let target = cases.find((c) => visitIdsEqual(c.visitId, visitId));
+      if (!target) {
+        target = stubCaseFromVisitId(visitId, importedAt);
+        cases = [...cases, target];
+      }
+
+      const patch: Partial<FollowUpBatchCase> = { importedAt };
+      if (role === "roi") {
+        patch.niiVolumeId = vol.id;
+        patch.niiFileName = nii.name;
+      } else {
+        patch.ctVolumeId = vol.id;
+        patch.ctFileName = nii.name;
+        ctLinkedCount++;
+      }
+
+      cases = upsertCase(cases, { ...target, ...patch } as FollowUpBatchCase);
     }
+
+    const clinicalOnly = excelFile && clinicalRows.length > 0;
+    const matchedFromZip = niiFiles.filter((n) => n.visitId).length - unmatchedNiiFiles.length;
+    if (!excelFile) {
+      warnings.push(`已从 ZIP 解析 ${cases.length} 例（就诊号来自文件名）`);
+      if (unmatchedNiiFiles.length) {
+        warnings.push(
+          `${unmatchedNiiFiles.length} 个 NIfTI 无法从文件名识别就诊号：${unmatchedNiiFiles.slice(0, 3).join("、")}${unmatchedNiiFiles.length > 3 ? "…" : ""}`,
+        );
+      }
+    } else if (clinicalOnly) {
+      const unmatchedVisitIds = cases.filter((c) => !c.niiVolumeId).map((c) => c.visitId);
+      if (unmatchedNiiFiles.length) {
+        warnings.push(
+          `${unmatchedNiiFiles.length} 个 NIfTI 未匹配到 Excel 就诊号：${unmatchedNiiFiles.slice(0, 3).join("、")}${unmatchedNiiFiles.length > 3 ? "…" : ""}`,
+        );
+      }
+      if (unmatchedVisitIds.length) {
+        warnings.push(`${unmatchedVisitIds.length} 例临床记录未匹配到预勾画影像`);
+      }
+      if (matchedFromZip === 0 && niiFiles.length > 0) {
+        warnings.push("未能完成任何就诊号与 ROI 的关联，请检查 Excel 就诊号与 roi_ 文件名前缀是否一致");
+      }
+    }
+  } else {
+    warnings.push("仅导入临床 Excel，预勾画影像可稍后单独上传 ZIP 补充");
   }
 
-  const matchedVisitIds = new Set(
-    niiFiles
-      .filter((n) => n.visitId && findClinicalRow(clinicalRows, n.visitId))
-      .map((n) => padVisitId(n.visitId!)),
-  );
-  const unmatchedVisitIds = cases.filter((c) => !c.niiVolumeId).map((c) => c.visitId);
-
-  if (unmatchedNiiFiles.length) {
-    warnings.push(`${unmatchedNiiFiles.length} 个 NIfTI 未匹配到 Excel 就诊号：${unmatchedNiiFiles.slice(0, 3).join("、")}${unmatchedNiiFiles.length > 3 ? "…" : ""}`);
-  }
-  if (unmatchedVisitIds.length) {
-    warnings.push(`${unmatchedVisitIds.length} 例临床记录未匹配到预勾画影像`);
-  }
   if (ctLinkedCount > 0) {
     warnings.push(`${ctLinkedCount} 例已关联 CT 原图 NIfTI，预览将叠加显示`);
   }
 
+  const stats = finalizeBatchStats(cases);
   const state: FollowUpBatchState = {
-    excelFileName: excelFile.name,
-    zipFileName: zipFile.name,
+    excelFileName: excelFile?.name ?? existing?.excelFileName ?? null,
+    zipFileName: zipFile?.name ?? existing?.zipFileName ?? null,
     importedAt,
     cases,
-    matchedCount: cases.filter((c) => c.niiVolumeId).length,
-    unmatchedVisitIds,
+    ...stats,
     unmatchedNiiFiles,
   };
   saveFollowUpBatch(state);
 
-  const excelBuf = await excelFile.arrayBuffer();
-  const parsed = parseClinicalExcelBuffer(excelBuf, `随访批量 · ${excelFile.name}`);
-  if (parsed.errors.length) {
-    warnings.push(`临床数据集部分字段未按模板解析：${parsed.errors[0]}`);
-  } else {
-    const ds = parsed.dataset;
-    if (ds.patientIdField && ds.patientIdField !== "就诊号") {
-      ds.rows = ds.rows.map((row) => {
-        const pid = row[ds.patientIdField];
-        if (pid && !row.就诊号) return { ...row, 就诊号: pid };
-        return row;
-      });
+  if (excelFile) {
+    const excelBuf = await excelFile.arrayBuffer();
+    const parsed = parseClinicalExcelBuffer(excelBuf, `随访批量 · ${excelFile.name}`);
+    if (parsed.errors.length) {
+      warnings.push(`临床数据集部分字段未按模板解析：${parsed.errors[0]}`);
+    } else {
+      const ds = parsed.dataset;
+      if (ds.patientIdField && ds.patientIdField !== "就诊号") {
+        ds.rows = ds.rows.map((row) => {
+          const pid = row[ds.patientIdField];
+          if (pid && !row.就诊号) return { ...row, 就诊号: pid };
+          return row;
+        });
+      }
+      saveClinicalDataset({ ...ds, id: RESEARCH_COHORT_DATASET_ID, name: `随访批量 · ${excelFile.name}` });
     }
-    saveClinicalDataset({ ...ds, id: RESEARCH_COHORT_DATASET_ID, name: `随访批量 · ${excelFile.name}` });
   }
 
   const patients = batchCasesToPlatformPatients(cases);
   savePatients(mergePatients(loadPatients(), patients));
-
-  if (matchedVisitIds.size === 0) {
-    warnings.push("未能完成任何就诊号与 ROI 的关联，请检查 Excel 就诊号与 roi_ 文件名前缀是否一致");
-  }
 
   return { ...state, warnings };
 }

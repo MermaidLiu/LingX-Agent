@@ -62,7 +62,8 @@ export default function PlatformFollowUpPage() {
         随访队列
       </Title>
       <Paragraph type="secondary">
-        单例患者可在「智能分析」完成后加入随访队列；批量预勾画影像与临床 Excel 请在本页导入并关联就诊号。
+        支持三种导入：仅临床 Excel、仅预勾画 ZIP、或两者同时上传（推荐，按就诊号自动关联）。
+        单例患者仍可在「智能分析」完成后加入随访队列。
       </Paragraph>
 
       <FollowUpBatchImportPanel onImported={setBatch} />

@@ -212,8 +212,8 @@ export const MOCK_RESEARCH_IDEAS = [
 ];
 
 export const WORKFLOW_STEPS = [
-  { key: "input", label: "① 智能对话 · 上传分析" },
+  { key: "input", label: "① 影像输入" },
   { key: "diagnosis", label: "② 智能分析" },
-  { key: "database", label: "③ 加入数据库" },
+  { key: "database", label: "③ 方案推荐 / 入队" },
   { key: "research", label: "④ 科研延伸" },
 ];
