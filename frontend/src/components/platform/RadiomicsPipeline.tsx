@@ -27,6 +27,7 @@ type Props = {
   pathologyGrade?: string;
   clinicalQuestion: ClinicalQuestion;
   onComplete: (rows: ResearchResultRow[], summary: string, auc?: number) => void;
+  onStepChange?: (step: number) => void;
 };
 
 export default function RadiomicsPipeline({
@@ -38,6 +39,7 @@ export default function RadiomicsPipeline({
   pathologyGrade,
   clinicalQuestion,
   onComplete,
+  onStepChange,
 }: Props) {
   const { message } = App.useApp();
   const [step, setStep] = useState(0);
@@ -62,6 +64,10 @@ export default function RadiomicsPipeline({
     () => !batchRoiMode && hasAnnotatedImage(annotatedImageBase64),
     [annotatedImageBase64, batchRoiMode],
   );
+
+  useEffect(() => {
+    onStepChange?.(step);
+  }, [step, onStepChange]);
 
   useEffect(() => {
     if (batchRoiMode && batchRoiImages.length) {

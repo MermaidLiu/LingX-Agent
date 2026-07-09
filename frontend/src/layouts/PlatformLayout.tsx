@@ -120,11 +120,15 @@ export default function PlatformLayout() {
     if (loc.pathname.startsWith("/research")) return "科研延伸";
     if (loc.pathname.startsWith("/db/clinical")) return "临床数据集";
     if (loc.pathname.startsWith("/knowledge/data/imaging")) return "影像数据智能分析";
-    if (loc.pathname.startsWith("/knowledge/data/multimodal")) return "多模态联合分析";
+    if (loc.pathname.startsWith("/knowledge/data/multimodal")) return "多模态分析 Agent";
     if (loc.pathname.startsWith("/knowledge/data")) return "数据分析";
     if (loc.pathname.startsWith("/knowledge/library")) return "知识库";
     return map[loc.pathname] || "PMP 智能医疗平台";
   }, [loc.pathname]);
+
+  const hideWorkflowBanner =
+    loc.pathname.startsWith("/knowledge/data/multimodal") ||
+    loc.pathname.startsWith("/knowledge/data/imaging");
 
   return (
     <Layout className="pmp-layout">
@@ -192,7 +196,7 @@ export default function PlatformLayout() {
           </Space>
         </Header>
         <Content className="pmp-content">
-          {jobRunning ? (
+          {!hideWorkflowBanner && jobRunning ? (
             <Alert
               type="info"
               showIcon
@@ -209,7 +213,7 @@ export default function PlatformLayout() {
                 </span>
               }
             />
-          ) : jobDoneAway ? (
+          ) : !hideWorkflowBanner && jobDoneAway ? (
             <Alert
               type="success"
               showIcon
