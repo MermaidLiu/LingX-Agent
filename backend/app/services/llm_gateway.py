@@ -78,16 +78,38 @@ async def chat_completions(
     model_id = (model or llm_chat_model()).strip()
     url = f"{llm_base_url()}/chat/completions"
     headers = llm_auth_headers()
-    body = {
+    # Newer ReachAPI / OpenAI models (e.g. gpt-5.6-sol):
+    # - require max_completion_tokens (not max_tokens)
+    # - only allow default temperature (omit or 1)
+    mid = model_id.lower()
+    strict_chat = any(x in mid for x in ("gpt-5.6", "gpt-5.5", "o1", "o3", "o4"))
+    token_key = "max_completion_tokens" if strict_chat else "max_tokens"
+    body: dict[str, Any] = {
         "model": model_id,
         "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
+        token_key: max_tokens,
     }
+    if strict_chat:
+        # Only default temperature is accepted; omit custom values
+        pass
+    else:
+        body["temperature"] = temperature
+
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(url, headers=headers, json=body)
+        # Auto-retry once if the gateway rejects the wrong token limit field
         if resp.status_code >= 400:
-            # Surface ReachAPI body so ops can verify header / model / balance
+            detail = (resp.text or "")[:800]
+            if token_key == "max_tokens" and "max_completion_tokens" in detail:
+                body.pop("max_tokens", None)
+                body["max_completion_tokens"] = max_tokens
+                resp = await client.post(url, headers=headers, json=body)
+                detail = (resp.text or "")[:800]
+            if "temperature" in detail and "Unsupported" in detail:
+                body.pop("temperature", None)
+                resp = await client.post(url, headers=headers, json=body)
+                detail = (resp.text or "")[:800]
+        if resp.status_code >= 400:
             detail = (resp.text or "")[:800]
             logger.error(
                 "ReachAPI chat failed status=%s url=%s model=%s auth_scheme=%s body=%s",
