@@ -10,6 +10,9 @@ export type PlatformOverviewStats = {
   with_annotation: number;
   imaging: number;
   annotation_models: number;
+  llm_model_count?: number;
+  llm_provider?: string;
+  llm_chat_model?: string;
   dicom_estimate: number;
   prediction_accuracy_pct: number | null;
 };
@@ -109,7 +112,8 @@ export function buildHomeOverviewStats(
   platform?: PlatformOverviewStats | null,
 ): HomeOverviewStat[] {
   const summary = summarizePatients(patients);
-  const modelCount = Math.max(summary.withAnnotation, platform?.annotation_models ?? 0);
+  const llmCount = platform?.llm_model_count ?? 0;
+  const modelCount = llmCount > 0 ? llmCount : Math.max(summary.withAnnotation, platform?.annotation_models ?? 0);
   const accuracy =
     summary.predictionAccuracyPct != null
       ? `${summary.predictionAccuracyPct}%`
@@ -142,9 +146,11 @@ export function buildHomeOverviewStats(
       label: "模型数量",
       value: String(modelCount),
       delta:
-        platform?.imaging != null
-          ? `${platform.imaging} 例有影像 · ${summary.withAnnotation} 例已分割`
-          : `${summary.withAnnotation} 例已分割`,
+        llmCount > 0
+          ? `ReachAPI · 默认 ${platform?.llm_chat_model || "gpt-5.4-mini"}`
+          : platform?.imaging != null
+            ? `${platform.imaging} 例有影像 · ${summary.withAnnotation} 例已分割`
+            : `${summary.withAnnotation} 例已分割`,
       deltaUp: modelCount > 0,
     },
     {

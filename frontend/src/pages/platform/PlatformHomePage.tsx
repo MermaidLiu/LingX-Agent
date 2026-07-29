@@ -207,7 +207,7 @@ export default function PlatformHomePage() {
               {(overviewStats.length ? overviewStats : [
                 { key: "pending", label: "待诊断病例", value: "—", delta: "加载中", deltaUp: false },
                 { key: "done", label: "已诊断病例", value: "—", delta: "加载中", deltaUp: false },
-                { key: "models", label: "模型数量", value: "8", delta: "—", deltaUp: true },
+                { key: "models", label: "模型数量", value: "—", delta: "加载中", deltaUp: true },
                 { key: "accuracy", label: "预测准确率", value: "—", delta: "加载中", deltaUp: false },
               ]).map((stat) => (
                 <Col xs={12} sm={6} key={stat.key}>

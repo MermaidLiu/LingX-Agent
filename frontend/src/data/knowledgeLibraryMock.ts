@@ -1,11 +1,28 @@
+export type CitationValidation = {
+  doi?: string;
+  pmid?: string;
+  status: string;
+  checked_at: string;
+  message: string;
+};
+
 export type KnowledgeLiterature = {
   id: string;
   title: string;
-  source: "PubMed" | "综述" | "指南/共识" | "内部文献" | "专病库";
+  source: "PubMed" | "综述" | "指南/共识" | "内部文献" | "专病库" | string;
   year: string;
   doi: string;
   pmid: string;
   relevance: number;
+  journal?: string;
+  doi_validation?: CitationValidation;
+  pmid_validation?: CitationValidation;
+  cited_at?: string;
+  verifiable?: boolean;
+  is_demo?: boolean;
+  excerpt?: string;
+  guideline_fragment_id?: string;
+  guideline_version?: string;
 };
 
 export type AnswerPoint = {

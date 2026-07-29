@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
@@ -38,6 +38,7 @@ from app.models.platform_schemas import (
     PlatformSaveResponse,
 )
 from app.repositories import pet_ct_case
+from app.services.billing_quota import consume_llm_quota, require_llm_quota
 from app.services.pathology_grade_cache import (
     compute_upload_fingerprint,
     load_grade_cache,
@@ -87,13 +88,24 @@ async def platform_chat_analyze(
     variables: str = Form(""),
     outcome: str = Form(""),
     notes: str = Form(""),
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_guest_id: str | None = Header(default=None, alias="X-Guest-Id"),
 ) -> PlatformChatAnalyzeResponse:
+    user, guest, snap = require_llm_quota(db, authorization=authorization, guest_id=x_guest_id)
     intent = AnalysisIntentBody(question=question, variables=variables, outcome=outcome, notes=notes)
     file_items: list[tuple[str, bytes]] = []
     for uf in files:
         content = await uf.read()
         file_items.append((uf.filename or "upload", content))
-    return await analyze_chat_uploads(file_items, intent)
+    result = await analyze_chat_uploads(
+        file_items,
+        intent,
+        simple_qa_only=bool(snap.get("simple_qa_only")),
+    )
+    if result.llm_used:
+        consume_llm_quota(db, user=user, guest=guest)
+    return result
 
 
 @router.post("/chat/save", response_model=PlatformSaveResponse)
@@ -479,12 +491,26 @@ def platform_list_pathology(keyword: str = "", db: Session = Depends(get_db)) ->
 
 
 @router.post("/care-pathway/analyze", response_model=CarePathwayAnalyzeResponse)
-async def platform_care_pathway_analyze(body: CarePathwayAnalyzeBody) -> CarePathwayAnalyzeResponse:
-    """Imaging report from CT API conclusion; treatment suggestions via DeepSeek."""
+async def platform_care_pathway_analyze(
+    body: CarePathwayAnalyzeBody,
+    db: Session = Depends(get_db),
+    authorization: str | None = Header(default=None),
+    x_guest_id: str | None = Header(default=None, alias="X-Guest-Id"),
+) -> CarePathwayAnalyzeResponse:
+    """Imaging report from CT API conclusion; treatment suggestions via ReachAPI LLM."""
+    from app.services.billing_quota import resolve_identity
     from app.services.care_pathway_llm import analyze_care_pathway
 
-    raw = await analyze_care_pathway(body.imaging, body.record)
+    user, guest, snap = resolve_identity(db, authorization=authorization, guest_id=x_guest_id or "anonymous")
+    # Free users with no remaining quota still get local evidence cards (no LLM polish)
+    allow_llm = bool(snap.get("is_pro") or (snap.get("llm_remaining") or 0) > 0)
+    raw = await analyze_care_pathway(body.imaging, body.record, allow_llm=allow_llm)
     treatment = raw.get("treatment") or {}
+    if allow_llm and treatment.get("llm_used"):
+        consume_llm_quota(db, user=user, guest=guest)
+    elif not allow_llm and treatment.get("llm_used"):
+        # Should not happen if care_pathway respects availability; belt-and-suspenders
+        treatment = {**treatment, "llm_used": False}
     return CarePathwayAnalyzeResponse(
         imaging_report=str(raw.get("imaging_report") or ""),
         api_conclusion=str(raw.get("api_conclusion") or ""),
@@ -587,8 +613,8 @@ async def platform_radiomics_run(
 
 
 @router.post("/knowledge/search", response_model=PlatformKnowledgeSearchResponse)
-def platform_knowledge_search(body: PlatformKnowledgeSearchBody) -> PlatformKnowledgeSearchResponse:
-    return search_knowledge(body)
+async def platform_knowledge_search(body: PlatformKnowledgeSearchBody) -> PlatformKnowledgeSearchResponse:
+    return await search_knowledge(body)
 
 
 @router.post("/knowledge/generate", response_model=PlatformKnowledgeGenerateResponse)
@@ -620,8 +646,16 @@ def platform_clinical_dataset_analyze(body: ClinicalDatasetAnalyzeBody) -> Clini
 
 
 @router.get("/stats")
-def platform_stats(db: Session = Depends(get_db)) -> dict[str, Any]:
+async def platform_stats(db: Session = Depends(get_db)) -> dict[str, Any]:
+    from app.services.llm_gateway import count_models, is_llm_available, llm_base_url, llm_chat_model
+
     rows = pet_ct_case.list_all(db, limit=5000)
     records = [pet_ct_case.orm_to_record(r) for r in rows]
     patients = [record_to_patient_row(r) for r in records]
-    return build_platform_overview_stats(patients, records)
+    stats = build_platform_overview_stats(patients, records)
+    llm_n = await count_models() if is_llm_available() else 0
+    stats["llm_model_count"] = llm_n
+    stats["llm_provider"] = "reachapi" if is_llm_available() else "offline"
+    stats["llm_chat_model"] = llm_chat_model() if is_llm_available() else ""
+    stats["llm_base_url"] = llm_base_url() if is_llm_available() else ""
+    return stats

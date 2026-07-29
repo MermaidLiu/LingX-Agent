@@ -1,4 +1,4 @@
-"""DeepSeek chat completions for platform smart dialogue."""
+"""Platform smart dialogue via ReachAPI (OpenAI-compatible chat completions)."""
 
 from __future__ import annotations
 
@@ -6,15 +6,13 @@ import json
 import logging
 from typing import Any
 
-import httpx
-
-from app.core.config import settings
 from app.models.domain import PetCtInterviewRecord
 from app.models.platform_schemas import (
     AnalysisIntentBody,
     PathologyImagingGradeResult,
     PlatformDiagnosisResult,
 )
+from app.services.llm_gateway import chat_completions, is_llm_available, llm_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -28,24 +26,14 @@ SYSTEM_PROMPT = """你是 PMP（腹膜假黏液瘤）多模态科研平台的智
 4. 若信息不足，明确说明还需补充哪些检查
 5. 不做最终临床决策，必要时提醒结合病理与 MDT 讨论"""
 
-
-def _effective_api_key() -> str:
-    return (settings.deepseek_api_key or settings.openai_api_key or "").strip()
-
-
-def _effective_base_url() -> str:
-    base = (settings.deepseek_base_url or settings.openai_base_url or "https://api.deepseek.com").strip()
-    return base.rstrip("/")
-
-
-def _effective_model() -> str:
-    return (settings.deepseek_chat_model or settings.research_llm_model or "deepseek-chat").strip()
+FREE_SIMPLE_SYSTEM_PROMPT = """你是 PMP 专病平台的免费版助手。
+当前为免费额度：仅做「问什么答什么」的简短问答，不基于长上下文、不编造未提供的病例细节。
+用简洁中文直接回答用户问题；若问题需要完整病历/影像上下文，提醒开通 PRO（$199/月）以解锁完整智能对话与分析。"""
 
 
 def is_deepseek_available() -> bool:
-    if settings.demo_mode:
-        return False
-    return bool(_effective_api_key())
+    """Backward-compatible alias: True when ReachAPI / OpenAI-compatible key is set."""
+    return is_llm_available()
 
 
 def _build_context(
@@ -126,8 +114,11 @@ def format_fallback_reply(
             lines.append(f"\n> {note.strip()}")
     if intent_question:
         lines.extend(["", f"**按您的分析需求：** {intent_question}"])
-    if not is_deepseek_available():
-        lines.append("\n> 提示：未配置 DeepSeek API Key，当前为规则引擎结果。请在 backend/.env 设置 DEEPSEEK_API_KEY。")
+    if not is_llm_available():
+        lines.append(
+            "\n> 提示：未配置 ReachAPI Key，当前为规则引擎结果。"
+            "请在 backend/.env 设置 REACHAPI_API_KEY。"
+        )
     return "\n".join(lines)
 
 
@@ -138,49 +129,49 @@ async def generate_chat_reply(
     fusion_summary: str,
     ingest_notes: list[str],
     pathology_imaging: PathologyImagingGradeResult | None,
+    *,
+    simple_qa_only: bool = False,
 ) -> tuple[str, str, bool]:
     """Return (reply_text, model_name, used_llm)."""
     extra = [n for n in ingest_notes if n]
     if pathology_imaging and pathology_imaging.message:
         extra.append(pathology_imaging.message)
 
-    if not is_deepseek_available():
+    model = llm_chat_model()
+    if not is_llm_available():
         return format_fallback_reply(diagnosis, intent.question, extra), "rule-engine", False
 
-    user_content = (
-        f"请根据以下 JSON 上下文回答用户问题。\n\n"
-        f"```json\n{_build_context(intent, record, diagnosis, fusion_summary, ingest_notes, pathology_imaging)}\n```"
-    )
-
-    url = f"{_effective_base_url()}/chat/completions"
-    model = _effective_model()
-    headers = {
-        "Authorization": f"Bearer {_effective_api_key()}",
-        "Content-Type": "application/json",
-    }
-    body = {
-        "model": model,
-        "messages": [
+    if simple_qa_only:
+        q = (intent.question or "").strip() or "请介绍腹膜假粘液瘤（PMP）的基本概念"
+        messages = [
+            {"role": "system", "content": FREE_SIMPLE_SYSTEM_PROMPT},
+            {"role": "user", "content": q},
+        ]
+        max_tokens = 1024
+    else:
+        user_content = (
+            f"请根据以下 JSON 上下文回答用户问题。\n\n"
+            f"```json\n{_build_context(intent, record, diagnosis, fusion_summary, ingest_notes, pathology_imaging)}\n```"
+        )
+        messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
-        ],
-        "temperature": 0.3,
-        "max_tokens": 2048,
-    }
+        ]
+        max_tokens = 2048
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(url, headers=headers, json=body)
-            resp.raise_for_status()
-            data = resp.json()
-        choices = data.get("choices") or []
-        if not choices:
-            raise ValueError("DeepSeek 返回空 choices")
-        content = choices[0].get("message", {}).get("content", "").strip()
-        if not content:
-            raise ValueError("DeepSeek 返回空内容")
-        return content, model, True
+        content, model_id = await chat_completions(
+            messages,
+            temperature=0.3,
+            max_tokens=max_tokens,
+        )
+        if simple_qa_only:
+            content = (
+                f"{content}\n\n"
+                f"> 免费版说明：当前为简短问答（不计上下文）。完整病例联动分析请开通 PRO。"
+            )
+        return content, model_id, True
     except Exception as exc:
-        logger.warning("DeepSeek chat failed, using fallback: %s", exc)
-        fallback = format_fallback_reply(diagnosis, intent.question, extra + [f"DeepSeek 调用失败：{exc}"])
+        logger.warning("ReachAPI chat failed, using fallback: %s", exc)
+        fallback = format_fallback_reply(diagnosis, intent.question, extra + [f"大模型调用失败：{exc}"])
         return fallback, model, False

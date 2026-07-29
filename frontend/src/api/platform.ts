@@ -184,6 +184,14 @@ export type ResearchResultRow = {
   weight?: number;
 };
 
+export type CitationValidation = {
+  doi?: string;
+  pmid?: string;
+  status: string;
+  checked_at: string;
+  message: string;
+};
+
 export type KnowledgeLiterature = {
   id: string;
   title: string;
@@ -192,6 +200,15 @@ export type KnowledgeLiterature = {
   doi: string;
   pmid: string;
   relevance: number;
+  journal?: string;
+  doi_validation?: CitationValidation;
+  pmid_validation?: CitationValidation;
+  cited_at?: string;
+  verifiable?: boolean;
+  is_demo?: boolean;
+  excerpt?: string;
+  guideline_fragment_id?: string;
+  guideline_version?: string;
 };
 
 export type AnswerPoint = { text: string; refs: number[] };
@@ -403,22 +420,29 @@ export async function platformResearchGradeRun(
   return data;
 }
 
-export async function platformKnowledgeSearch(query: string, sources: string[] = []) {
+export async function platformKnowledgeSearch(query: string, sources: string[] = [], allowDemo = false) {
   const { data } = await api.post<{
     query: string;
     hit_count: number;
     literature: KnowledgeLiterature[];
     answer_points: AnswerPoint[];
-    stats: { hit: number; reviews: number; guidelines: number; selected: number };
-  }>("/api/v1/platform/knowledge/search", { query, sources });
+    stats: { hit: number; reviews: number; guidelines: number; selected: number; verifiable?: number };
+    search_mode?: string;
+    demo_mixed?: boolean;
+    searched_at?: string;
+    source_errors?: string[];
+  }>("/api/v1/platform/knowledge/search", { query, sources, allow_demo: allowDemo });
   return data;
 }
 
 export async function platformKnowledgeGenerate(doc_type: string, query: string, literature_ids: string[]) {
-  const { data } = await api.post<{ doc_type: string; title: string; content: string }>(
-    "/api/v1/platform/knowledge/generate",
-    { doc_type, query, literature_ids },
-  );
+  const { data } = await api.post<{
+    doc_type: string;
+    title: string;
+    content: string;
+    generated_at?: string;
+    citation_records?: KnowledgeLiterature[];
+  }>("/api/v1/platform/knowledge/generate", { doc_type, query, literature_ids });
   return data;
 }
 
@@ -446,13 +470,48 @@ export type CarePathwayAnalyzeResult = {
   inferred_diagnosis: string;
   treatment: {
     recommendations: string[];
+    evidence_cards?: Array<{
+      id: string;
+      status: string;
+      priority: string;
+      recommendation: string;
+      guideline_fragments: Array<{
+        fragment_id: string;
+        guideline_id: string;
+        title: string;
+        version: string;
+        section: string;
+        excerpt: string;
+        source_type?: string;
+        published_at?: string;
+      }>;
+      patient_evidence: Array<{
+        id: string;
+        kind: string;
+        label: string;
+        value: string;
+        source: string;
+      }>;
+      generated_at: string;
+      requires_mdt_confirmation: boolean;
+    }>;
     grade_label: string;
     mdt_recommended: boolean;
+    draft_status?: string;
     guideline_refs: string[];
     llm_used?: boolean;
     llm_model?: string;
   };
-  literature: Array<{ title: string; journal: string; year: string; pmid: string }>;
+  literature: Array<{
+    title: string;
+    journal: string;
+    year: string;
+    pmid: string;
+    doi?: string;
+    verifiable?: boolean;
+    cited_at?: string;
+    is_demo?: boolean;
+  }>;
 };
 
 export async function platformCarePathwayAnalyze(
@@ -502,6 +561,9 @@ export async function platformStats() {
     with_annotation: number;
     imaging: number;
     annotation_models: number;
+    llm_model_count?: number;
+    llm_provider?: string;
+    llm_chat_model?: string;
     dicom_estimate: number;
     prediction_accuracy_pct: number | null;
   }>("/api/v1/platform/stats");

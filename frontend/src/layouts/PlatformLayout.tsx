@@ -1,6 +1,7 @@
 import {
   ApartmentOutlined,
   BarChartOutlined,
+  CrownOutlined,
   DatabaseOutlined,
   ExperimentOutlined,
   HomeOutlined,
@@ -10,10 +11,20 @@ import {
   RobotOutlined,
   SettingOutlined,
   TeamOutlined,
+  UserOutlined,
 } from "@ant-design/icons";
-import { Badge, Input, Layout, Menu, Space, Typography, Alert, Button } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { Badge, Button, Input, Layout, Menu, Space, Tag, Typography, Alert } from "antd";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { authGetQuota } from "../api/auth";
+import {
+  AUTH_CHANGED_EVENT,
+  clearAuthSession,
+  emitAuthChanged,
+  getAuthToken,
+  loadCachedUser,
+  type AuthUser,
+} from "../lib/authSession";
 import {
   getPathologyJobState,
   isPathologyJobRunning,
@@ -78,8 +89,25 @@ export default function PlatformLayout() {
   const loc = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [pathologyJob, setPathologyJob] = useState<PathologyJobState>(() => getPathologyJobState());
+  const [quota, setQuota] = useState<AuthUser | null>(() => loadCachedUser());
+
+  const refreshQuota = useCallback(() => {
+    void authGetQuota()
+      .then((q) => setQuota(q))
+      .catch(() => setQuota(loadCachedUser()));
+  }, []);
 
   useEffect(() => subscribePathologyJob(setPathologyJob), []);
+  useEffect(() => {
+    refreshQuota();
+    const onAuth = () => refreshQuota();
+    window.addEventListener(AUTH_CHANGED_EVENT, onAuth);
+    window.addEventListener("pmp-quota-exceeded", onAuth);
+    return () => {
+      window.removeEventListener(AUTH_CHANGED_EVENT, onAuth);
+      window.removeEventListener("pmp-quota-exceeded", onAuth);
+    };
+  }, [refreshQuota]);
 
   const jobRunning = isPathologyJobRunning() || pathologyJob.phase === "running";
   const jobDoneAway =
@@ -181,18 +209,49 @@ export default function PlatformLayout() {
             </Typography.Text>
             <span className="pmp-tag-blue">Beta</span>
           </Space>
-          <Space size={20}>
-            <Input.Search placeholder="搜索病例、患者、模型等…" style={{ width: 320 }} allowClear />
+          <Space size={16}>
+            <Input.Search placeholder="搜索病例、患者、模型等…" style={{ width: 280 }} allowClear />
+            {quota?.is_pro ? (
+              <Tag icon={<CrownOutlined />} color="gold">
+                PRO
+              </Tag>
+            ) : (
+              <Tag
+                color={quota?.llm_remaining === 0 ? "error" : "processing"}
+                style={{ cursor: "pointer" }}
+                onClick={() => nav(getAuthToken() ? "/account/billing" : "/account/login?next=/account/billing")}
+              >
+                免费 {quota?.llm_remaining ?? "—"}/{quota?.llm_limit ?? 10}
+              </Tag>
+            )}
             <Badge count={12} size="small">
               <RobotOutlined style={{ fontSize: 18, color: "#6b7280" }} />
             </Badge>
             <Badge dot>
               <TeamOutlined style={{ fontSize: 18, color: "#6b7280" }} />
             </Badge>
-            <Space size={8}>
-              <span style={{ fontSize: 13, color: "#374151" }}>张医生</span>
-              <span style={{ fontSize: 12, color: "#9ca3af" }}>肿瘤内科</span>
-            </Space>
+            {getAuthToken() && quota?.email ? (
+              <Space size={8}>
+                <UserOutlined style={{ color: "#6b7280" }} />
+                <span style={{ fontSize: 13, color: "#374151" }}>{quota.display_name || quota.email}</span>
+                <Button
+                  type="link"
+                  size="small"
+                  style={{ padding: 0 }}
+                  onClick={() => {
+                    clearAuthSession();
+                    emitAuthChanged();
+                    refreshQuota();
+                  }}
+                >
+                  退出
+                </Button>
+              </Space>
+            ) : (
+              <Button type="link" size="small" onClick={() => nav("/account/login")}>
+                登录
+              </Button>
+            )}
           </Space>
         </Header>
         <Content className="pmp-content">

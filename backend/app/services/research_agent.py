@@ -187,15 +187,19 @@ class ResearchAgent:
         from langchain_core.tools import tool
         from langchain_openai import ChatOpenAI
 
-        api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY", "")
+        from app.services.llm_gateway import llm_api_key, llm_base_url, llm_chat_model
+
+        api_key = llm_api_key() or os.getenv("OPENAI_API_KEY", "")
+        model_name = self._model_name or llm_chat_model()
         kwargs: dict[str, Any] = {
-            "model": self._model_name,
+            "model": model_name,
             "temperature": 0.1,
         }
         if api_key:
             kwargs["api_key"] = api_key
-        if settings.openai_base_url:
-            kwargs["base_url"] = settings.openai_base_url
+        base = llm_base_url()
+        if base:
+            kwargs["base_url"] = base
         llm = ChatOpenAI(**kwargs)
 
         tools = [tool(fn) for fn in self._tool_fns()]
@@ -217,7 +221,9 @@ class ResearchAgent:
 
     def run_research(self, patient_data: dict[str, Any], research_topic: str) -> str:
         """运行科研智能体；无 API Key 或 demo_mode 时返回演示用离线报告。"""
-        api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY", "")
+        from app.services.llm_gateway import llm_api_key
+
+        api_key = llm_api_key() or os.getenv("OPENAI_API_KEY", "")
         data_str = json.dumps(patient_data, ensure_ascii=False)
         use_offline_demo = settings.demo_mode or not api_key
 
@@ -250,7 +256,9 @@ class ResearchAgent:
         tasks: list[str],
     ) -> dict[str, str]:
         """按任务子集执行工具链；无 API Key 时同样走离线工具拼装。"""
-        api_key = settings.openai_api_key or os.getenv("OPENAI_API_KEY", "")
+        from app.services.llm_gateway import llm_api_key
+
+        api_key = llm_api_key() or os.getenv("OPENAI_API_KEY", "")
         data_str = json.dumps(patient_data, ensure_ascii=False)
         use_offline = settings.demo_mode or not api_key
         out: dict[str, str] = {}

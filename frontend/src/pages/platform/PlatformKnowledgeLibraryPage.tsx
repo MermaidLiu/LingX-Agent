@@ -57,7 +57,13 @@ export default function PlatformKnowledgeLibraryPage() {
   const [highlightRef, setHighlightRef] = useState<number | null>(null);
   const [literature, setLiterature] = useState<KnowledgeLiterature[]>([]);
   const [answerPoints, setAnswerPoints] = useState<AnswerPoint[]>([]);
-  const [stats, setStats] = useState({ hit: 0, reviews: 0, guidelines: 0, selected: 0 });
+  const [stats, setStats] = useState({ hit: 0, reviews: 0, guidelines: 0, selected: 0, verifiable: 0 });
+  const [searchMeta, setSearchMeta] = useState<{
+    mode: string;
+    searched_at: string;
+    demo_mixed: boolean;
+    source_errors: string[];
+  }>({ mode: "formal", searched_at: "", demo_mixed: false, source_errors: [] });
 
   async function startSearch() {
     if (!query.trim()) {
@@ -69,13 +75,30 @@ export default function PlatformKnowledgeLibraryPage() {
     setSelectedIds([]);
     setHighlightRef(null);
     try {
-      const res = await platformKnowledgeSearch(query.trim(), KNOWLEDGE_SOURCES);
+      const res = await platformKnowledgeSearch(query.trim(), KNOWLEDGE_SOURCES, false);
       setLiterature(res.literature as KnowledgeLiterature[]);
       setAnswerPoints(res.answer_points);
-      setStats({ ...res.stats, selected: 0 });
+      setStats({
+        hit: res.stats.hit,
+        reviews: res.stats.reviews,
+        guidelines: res.stats.guidelines,
+        selected: 0,
+        verifiable: res.stats.verifiable ?? res.literature.filter((l) => l.verifiable).length,
+      });
+      setSearchMeta({
+        mode: res.search_mode || "formal",
+        searched_at: res.searched_at || "",
+        demo_mixed: Boolean(res.demo_mixed),
+        source_errors: res.source_errors || [],
+      });
       setSearched(true);
-      setSelectedIds(res.literature.slice(0, 5).map((l) => l.id));
-      message.success("检索完成，已生成回答摘要与可查实文献");
+      const verifiableIds = res.literature.filter((l) => l.verifiable && !l.is_demo).slice(0, 5).map((l) => l.id);
+      setSelectedIds(verifiableIds);
+      message.success(
+        res.search_mode === "demo_isolated"
+          ? "演示隔离模式：结果不可用于正式引用"
+          : `正式检索完成：${res.literature.length} 篇可核查文献`,
+      );
     } catch (e) {
       message.error(e instanceof Error ? e.message : "检索失败");
     } finally {
@@ -91,7 +114,8 @@ export default function PlatformKnowledgeLibraryPage() {
     setHighlightRef(null);
     setLiterature([]);
     setAnswerPoints([]);
-    setStats({ hit: 0, reviews: 0, guidelines: 0, selected: 0 });
+    setStats({ hit: 0, reviews: 0, guidelines: 0, selected: 0, verifiable: 0 });
+    setSearchMeta({ mode: "formal", searched_at: "", demo_mixed: false, source_errors: [] });
   }
 
   function scrollToRef(refNum: number) {
@@ -106,14 +130,41 @@ export default function PlatformKnowledgeLibraryPage() {
       return;
     }
     if (selectedIds.length === 0) {
-      message.warning("请至少选择一篇文献作为证据");
+      message.warning("请至少选择一篇可核查文献作为证据");
+      return;
+    }
+    const demoSelected = literature.filter((l) => selectedIds.includes(l.id) && l.is_demo);
+    if (demoSelected.length) {
+      message.error("已选文献含演示数据，无法生成正式论文/综述引用");
+      return;
+    }
+    const unverifiable = literature.filter((l) => selectedIds.includes(l.id) && !l.verifiable);
+    if (unverifiable.length) {
+      message.error("存在未校验 DOI/PMID 的文献，请仅选择可核查条目");
       return;
     }
     try {
       const res = await platformKnowledgeGenerate(key, query, selectedIds);
       setGenContent(res.content);
       setGenModal({ key, title: res.title || title });
-      message.success(`已基于 ${selectedIds.length} 篇文献生成`);
+      const stamp = res.generated_at || new Date().toISOString();
+      setLiterature((prev) =>
+        prev.map((l) =>
+          selectedIds.includes(l.id)
+            ? {
+                ...l,
+                cited_at: stamp,
+                doi_validation: l.doi_validation
+                  ? { ...l.doi_validation, checked_at: l.doi_validation.checked_at || stamp }
+                  : l.doi_validation,
+                pmid_validation: l.pmid_validation
+                  ? { ...l.pmid_validation, checked_at: l.pmid_validation.checked_at || stamp }
+                  : l.pmid_validation,
+              }
+            : l,
+        ),
+      );
+      message.success(`已基于 ${selectedIds.length} 篇可核查文献生成（引用时间 ${stamp}）`);
     } catch (e) {
       message.error(e instanceof Error ? e.message : "生成失败");
     }
@@ -152,7 +203,10 @@ export default function PlatformKnowledgeLibraryPage() {
           </Paragraph>
           <Space wrap size={[6, 6]}>
             <Tag color="success" style={{ margin: 0 }}>
-              已连接：机构科研知识库
+              正式模式：PubMed / 指南库 / 院内文献
+            </Tag>
+            <Tag color="processing" style={{ margin: 0 }}>
+              演示数据已隔离
             </Tag>
             {KNOWLEDGE_SOURCES.map((s) => (
               <Tag key={s} style={{ margin: 0, background: "rgba(255,255,255,0.15)", border: "none", color: "#fff" }}>
@@ -169,7 +223,7 @@ export default function PlatformKnowledgeLibraryPage() {
           直接输入科研问题
         </Text>
         <Paragraph type="secondary" style={{ margin: "4px 0 12px", fontSize: 12 }}>
-          智能体将先检索知识库，再基于可查实文献生成回答
+          正式检索对接 PubMed、本地版本化指南库与院内文献库；保存 DOI/PMID 校验结果与引用生成时间。演示种子永不混入正式结果。
         </Paragraph>
         <div className="pmp-kb-search-row">
           <Input
@@ -194,7 +248,12 @@ export default function PlatformKnowledgeLibraryPage() {
                 <div className="pmp-kb-section-head">
                   <ReadOutlined style={{ color: "#7c3aed" }} />
                   <span>回答摘要</span>
-                  <Tag color="purple">基于知识库检索结果</Tag>
+                  <Tag color="purple">{searchMeta.mode === "formal" ? "正式可核查" : "演示隔离"}</Tag>
+                  {searchMeta.searched_at ? (
+                    <Text type="secondary" style={{ fontSize: 11, marginLeft: "auto" }}>
+                      检索时间 {searchMeta.searched_at}
+                    </Text>
+                  ) : null}
                 </div>
                 <div className="pmp-kb-answer-list">
                   {answerPoints.map((p, i) => (
@@ -216,7 +275,11 @@ export default function PlatformKnowledgeLibraryPage() {
                   ))}
                 </div>
                 <div className="pmp-kb-trust-note">
-                  可信度说明：每条结论均绑定下方文献列表；无文献支撑的内容不会纳入正式结论。
+                  可信度说明：仅 verifiable=true 且非演示的文献可纳入正式结论；生成综述/论文时会写入 DOI/PMID
+                  校验状态与引用生成时间。无校验通过的引用不会写入正式文稿。
+                  {searchMeta.source_errors.length ? (
+                    <div style={{ marginTop: 6 }}>源提示：{searchMeta.source_errors.join("；")}</div>
+                  ) : null}
                 </div>
               </div>
 
@@ -262,10 +325,58 @@ export default function PlatformKnowledgeLibraryPage() {
                     { title: "年份", dataIndex: "year", width: 64, align: "center" },
                     {
                       title: "DOI / PMID",
-                      width: 130,
+                      width: 160,
                       render: (_, r) => (
-                        <Text type="secondary" style={{ fontSize: 11 }}>
-                          {r.pmid !== "—" ? r.pmid : r.doi.slice(0, 16)}
+                        <Space direction="vertical" size={0}>
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            {r.pmid && r.pmid !== "—" ? `PMID ${r.pmid}` : r.doi ? `DOI ${r.doi.slice(0, 18)}` : "—"}
+                          </Text>
+                          <Space size={4} wrap>
+                            {r.pmid_validation?.status ? (
+                              <Tag
+                                color={
+                                  r.pmid_validation.status === "valid"
+                                    ? "success"
+                                    : r.pmid_validation.status === "invalid"
+                                      ? "error"
+                                      : "default"
+                                }
+                                style={{ margin: 0, fontSize: 10 }}
+                              >
+                                PMID {r.pmid_validation.status}
+                              </Tag>
+                            ) : null}
+                            {r.doi && r.doi_validation?.status ? (
+                              <Tag
+                                color={r.doi_validation.status === "valid" ? "success" : "default"}
+                                style={{ margin: 0, fontSize: 10 }}
+                              >
+                                DOI {r.doi_validation.status}
+                              </Tag>
+                            ) : null}
+                          </Space>
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: "可核查",
+                      width: 88,
+                      align: "center",
+                      render: (_, r) =>
+                        r.is_demo ? (
+                          <Tag color="error">演示</Tag>
+                        ) : r.verifiable ? (
+                          <Tag color="success">是</Tag>
+                        ) : (
+                          <Tag>否</Tag>
+                        ),
+                    },
+                    {
+                      title: "引用时间",
+                      width: 120,
+                      render: (_, r) => (
+                        <Text type="secondary" style={{ fontSize: 10 }}>
+                          {r.cited_at || "—"}
                         </Text>
                       ),
                     },
@@ -284,20 +395,56 @@ export default function PlatformKnowledgeLibraryPage() {
                       fixed: "right",
                       render: (_, r, i) => (
                         <Space size={0} wrap>
-                          <Button type="link" size="small" onClick={() => message.info(`PubMed 原文：${r.title}`)}>
+                          <Button
+                            type="link"
+                            size="small"
+                            disabled={Boolean(r.is_demo)}
+                            onClick={() => {
+                              if (r.pmid && r.pmid !== "—") {
+                                window.open(`https://pubmed.ncbi.nlm.nih.gov/${r.pmid}/`, "_blank");
+                              } else if (r.doi && r.doi !== "—") {
+                                window.open(`https://doi.org/${r.doi}`, "_blank");
+                              } else {
+                                message.info(r.excerpt || r.title);
+                              }
+                            }}
+                          >
                             查看原文
                           </Button>
                           <Button
                             type="link"
                             size="small"
+                            disabled={Boolean(r.is_demo) || !r.verifiable}
                             onClick={() => {
                               setSelectedIds((prev) => (prev.includes(r.id) ? prev : [...prev, r.id]));
-                              message.success("已加入证据");
+                              message.success("已加入可核查证据");
                             }}
                           >
                             加入证据
                           </Button>
-                          <Button type="link" size="small" onClick={() => message.success(`已复制引用 [${i + 1}]`)}>
+                          <Button
+                            type="link"
+                            size="small"
+                            disabled={Boolean(r.is_demo) || !r.verifiable}
+                            onClick={() => {
+                              const cite = [
+                                `[${i + 1}] ${r.title}`,
+                                r.pmid ? `PMID:${r.pmid}` : "",
+                                r.doi ? `DOI:${r.doi}` : "",
+                                r.pmid_validation?.status
+                                  ? `PMID校验:${r.pmid_validation.status}@${r.pmid_validation.checked_at}`
+                                  : "",
+                                r.doi_validation?.status && r.doi
+                                  ? `DOI校验:${r.doi_validation.status}@${r.doi_validation.checked_at}`
+                                  : "",
+                                `cited_at:${r.cited_at || ""}`,
+                              ]
+                                .filter(Boolean)
+                                .join(" | ");
+                              void navigator.clipboard?.writeText(cite);
+                              message.success("已复制含校验元数据的引用");
+                            }}
+                          >
                             引用
                           </Button>
                         </Space>
@@ -313,10 +460,10 @@ export default function PlatformKnowledgeLibraryPage() {
                 <SearchOutlined />
               </div>
               <Title level={4} style={{ marginBottom: 8 }}>
-                输入科研问题，开始检索
+                输入科研问题，开始正式检索
               </Title>
               <Paragraph type="secondary" style={{ maxWidth: 420, textAlign: "center" }}>
-                检索完成后，左侧展示带引用的回答摘要与可查实文献；右侧可基于已选文献生成综述、论文、基金或 PPT。
+                结果仅来自 PubMed / 指南库 / 院内文献；演示种子严格隔离。生成论文时会保存 DOI/PMID 校验与引用时间。
               </Paragraph>
             </div>
           )}
@@ -330,8 +477,8 @@ export default function PlatformKnowledgeLibraryPage() {
             <div className="pmp-kb-stats-grid">
               {[
                 { label: "命中文献", value: stats.hit, color: "#1677ff" },
-                { label: "可用综述", value: stats.reviews, color: "#7c3aed" },
-                { label: "指南/共识", value: stats.guidelines, color: "#3f8600" },
+                { label: "可核查", value: stats.verifiable, color: "#3f8600" },
+                { label: "指南/共识", value: stats.guidelines, color: "#7c3aed" },
                 { label: "已选证据", value: selectedIds.length, color: "#d48806" },
               ].map((s) => (
                 <div key={s.label} className="pmp-kb-stat-box">
@@ -345,7 +492,7 @@ export default function PlatformKnowledgeLibraryPage() {
           </div>
 
           <Text type="secondary" style={{ fontSize: 12, display: "block", margin: "4px 0 10px", paddingLeft: 2 }}>
-            基于检索结果继续生成
+            基于可核查文献继续生成
           </Text>
 
           {GENERATION_MODULES.map((m) => (

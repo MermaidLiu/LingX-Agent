@@ -1,9 +1,35 @@
 import axios from "axios";
+import { getAuthToken, getGuestId } from "../lib/authSession";
 
 export const api = axios.create({
   baseURL: "",
   timeout: 120000,
 });
+
+api.interceptors.request.use((config) => {
+  config.headers.set("X-Guest-Id", getGuestId());
+  const token = getAuthToken();
+  if (token) {
+    config.headers.set("Authorization", `Bearer ${token}`);
+  }
+  return config;
+});
+
+api.interceptors.response.use(
+  (res) => res,
+  (error) => {
+    const status = error?.response?.status;
+    const detail = error?.response?.data?.detail;
+    if (status === 402) {
+      window.dispatchEvent(
+        new CustomEvent("pmp-quota-exceeded", {
+          detail: typeof detail === "object" ? detail : { message: String(detail || "额度已用尽") },
+        }),
+      );
+    }
+    return Promise.reject(error);
+  },
+);
 
 export type PatientBaseInfo = {
   name: string;
@@ -189,6 +215,10 @@ export type TreatmentRecommendation = {
   recommendations: string[];
   guideline_refs: string[];
   mdt_recommended: boolean;
+  draft_status?: string;
+  evidence_cards?: Array<Record<string, unknown>>;
+  llm_used?: boolean;
+  llm_model?: string;
 };
 
 export type FeatureContributionItem = {

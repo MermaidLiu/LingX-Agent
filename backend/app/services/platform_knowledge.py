@@ -1,150 +1,82 @@
-"""Knowledge library: literature search and document generation."""
+"""Knowledge library: formal literature search (PubMed / guidelines / institution) and document generation.
+
+Demo seed literature is isolated and ONLY used when explicitly allowed
+(settings.knowledge_allow_demo_seed or body.allow_demo). Formal mode never mixes demo data.
+"""
 
 from __future__ import annotations
 
-import re
+from datetime import datetime, timezone
 from typing import Any
 
+from app.core.config import settings
 from app.models.domain import PetCtInterviewRecord
 from app.models.platform_schemas import (
     AnswerPointOut,
+    CitationValidationOut,
     KnowledgeLiteratureOut,
     PlatformKnowledgeGenerateBody,
     PlatformKnowledgeGenerateResponse,
     PlatformKnowledgeSearchBody,
     PlatformKnowledgeSearchResponse,
 )
+from app.services.literature_sources import formal_literature_search
 from app.services.output_generator import build_ppt_outline, build_research_report_markdown
-from app.services.pathology_grader import recommend_literature
 
 
-# Curated seed literature (keyword-indexed)
-_SEED_LITERATURE: list[dict[str, Any]] = [
+# Demo-only seed — never returned unless allow_demo / knowledge_allow_demo_seed
+_DEMO_SEED_LITERATURE: list[dict[str, Any]] = [
     {
-        "id": "L1",
-        "title": "DPAM vs PMCA: pathology-driven treatment pathways",
+        "id": "DEMO-L1",
+        "title": "[演示] DPAM vs PMCA: pathology-driven treatment pathways",
         "source": "PubMed",
         "year": "2024",
         "doi": "10.1038/s41379-024-01234",
         "pmid": "38234567",
-        "keywords": ["pmp", "dpam", "pmca", "腹膜", "假粘液", "粘液"],
-    },
-    {
-        "id": "L2",
-        "title": "Prognostic significance of SUVmax in mucinous peritoneal malignancies",
-        "source": "PubMed",
-        "year": "2023",
-        "doi": "10.1007/s00259-023-06123",
-        "pmid": "36812345",
-        "keywords": ["suv", "pet", "预后", "代谢", "影像"],
-    },
-    {
-        "id": "L3",
-        "title": "CRS and HIPEC for pseudomyxoma peritonei: international consensus",
-        "source": "指南/共识",
-        "year": "2022",
-        "doi": "10.1245/s10434-022-11890",
-        "pmid": "35123456",
-        "keywords": ["pmp", "crs", "hipec", "治疗", "共识"],
-    },
-    {
-        "id": "L4",
-        "title": "Machine learning for PET-based grade classification in PMP",
-        "source": "PubMed",
-        "year": "2024",
-        "doi": "10.1148/radiol.231234",
-        "pmid": "39123456",
-        "keywords": ["机器学习", "分级", "pet", "ai", "影像"],
-    },
-    {
-        "id": "L5",
-        "title": "Ki-67 and grade prediction in appendiceal mucinous neoplasms",
-        "source": "PubMed",
-        "year": "2021",
-        "doi": "10.1111/his.14567",
-        "pmid": "33456789",
-        "keywords": ["ki-67", "分级", "阑尾", "病理"],
-    },
-    {
-        "id": "L6",
-        "title": "PMP 专病库：128 例回顾性队列基线报告",
-        "source": "专病库",
-        "year": "2024",
-        "doi": "—",
-        "pmid": "—",
-        "keywords": ["专病库", "队列", "pmp", "回顾"],
-    },
-    {
-        "id": "L7",
-        "title": "腹膜假粘液瘤诊疗中国专家共识（2023 版）",
-        "source": "指南/共识",
-        "year": "2023",
-        "doi": "—",
-        "pmid": "—",
-        "keywords": ["共识", "诊疗", "假粘液", "中国"],
-    },
-    {
-        "id": "L8",
-        "title": "Recent advances in multimodal fusion for peritoneal surface malignancies",
-        "source": "综述",
-        "year": "2024",
-        "doi": "10.1016/j.critrevonc.2024.104567",
-        "pmid": "39876543",
-        "keywords": ["多模态", "融合", "腹膜", "综述"],
-    },
-    {
-        "id": "L9",
-        "title": "EGFR mutation and lung adenocarcinoma targeted therapy outcomes",
-        "source": "PubMed",
-        "year": "2023",
-        "doi": "10.1200/JCO.23.00123",
-        "pmid": "37123456",
-        "keywords": ["egfr", "肺", "腺癌", "靶向"],
-    },
-    {
-        "id": "L10",
-        "title": "NSCLC staging and PET-CT metabolic parameters: a meta-analysis",
-        "source": "综述",
-        "year": "2022",
-        "doi": "10.1016/j.lungcan.2022.05.001",
-        "pmid": "35678901",
-        "keywords": ["nsclc", "分期", "pet", "肺癌"],
+        "keywords": ["demo", "pmp"],
     },
 ]
 
 
-def _score_literature(query: str, item: dict[str, Any]) -> int:
-    q = query.lower()
-    tokens = re.findall(r"[\u4e00-\u9fffA-Za-z0-9]+", q)
-    score = 40
-    title = item["title"].lower()
-    for t in tokens:
-        if len(t) < 2:
-            continue
-        if t in title:
-            score += 18
-        if any(t in kw for kw in item.get("keywords", [])):
-            score += 12
-    return min(99, score)
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def search_knowledge(body: PlatformKnowledgeSearchBody) -> PlatformKnowledgeSearchResponse:
-    query = body.query.strip()
-    sources_filter = set(body.sources) if body.sources else set()
+def _validation_out(payload: dict[str, Any] | None, *, field: str) -> CitationValidationOut:
+    p = payload or {}
+    return CitationValidationOut(
+        doi=str(p.get("doi") or "") if field == "doi" else "",
+        pmid=str(p.get("pmid") or "") if field == "pmid" else "",
+        status=str(p.get("status") or "unchecked"),
+        checked_at=str(p.get("checked_at") or ""),
+        message=str(p.get("message") or ""),
+    )
 
-    scored: list[tuple[int, dict[str, Any]]] = []
-    for item in _SEED_LITERATURE:
-        if sources_filter and item["source"] not in sources_filter:
-            continue
-        rel = _score_literature(query, item)
-        if rel >= 45:
-            scored.append((rel, item))
 
-    scored.sort(key=lambda x: -x[0])
-    if not scored:
-        for item in _SEED_LITERATURE[:6]:
-            scored.append((_score_literature(query, item), item))
+def _row_to_literature(item: dict[str, Any]) -> KnowledgeLiteratureOut:
+    return KnowledgeLiteratureOut(
+        id=str(item.get("id") or ""),
+        title=str(item.get("title") or ""),
+        source=str(item.get("source") or ""),
+        year=str(item.get("year") or ""),
+        doi=str(item.get("doi") or ""),
+        pmid=str(item.get("pmid") or ""),
+        relevance=int(item.get("relevance") or 0),
+        journal=str(item.get("journal") or ""),
+        doi_validation=_validation_out(item.get("doi_validation"), field="doi"),
+        pmid_validation=_validation_out(item.get("pmid_validation"), field="pmid"),
+        cited_at=str(item.get("cited_at") or _utc_now_iso()),
+        verifiable=bool(item.get("verifiable")),
+        is_demo=bool(item.get("is_demo")),
+        excerpt=str(item.get("excerpt") or ""),
+        guideline_fragment_id=str(item.get("guideline_fragment_id") or ""),
+        guideline_version=str(item.get("guideline_version") or ""),
+    )
 
+
+def _demo_isolated_results(query: str) -> PlatformKnowledgeSearchResponse:
+    """Explicitly labeled demo-only path — never mixed with formal hits."""
+    now = _utc_now_iso()
     literature = [
         KnowledgeLiteratureOut(
             id=item["id"],
@@ -153,62 +85,151 @@ def search_knowledge(body: PlatformKnowledgeSearchBody) -> PlatformKnowledgeSear
             year=item["year"],
             doi=item["doi"],
             pmid=item["pmid"],
-            relevance=rel,
+            relevance=60,
+            journal="演示数据（不可用于正式引用）",
+            doi_validation=CitationValidationOut(
+                doi=item["doi"],
+                status="invalid",
+                checked_at=now,
+                message="演示 DOI，未经验证，禁止写入正式论文引用",
+            ),
+            pmid_validation=CitationValidationOut(
+                pmid=item["pmid"],
+                status="invalid",
+                checked_at=now,
+                message="演示 PMID，未经验证，禁止写入正式论文引用",
+            ),
+            cited_at=now,
+            verifiable=False,
+            is_demo=True,
         )
-        for rel, item in scored[:12]
+        for item in _DEMO_SEED_LITERATURE
     ]
+    return PlatformKnowledgeSearchResponse(
+        query=query,
+        hit_count=len(literature),
+        literature=literature,
+        answer_points=[
+            AnswerPointOut(
+                text="当前为演示隔离模式：结果不可用于正式论文引用，请关闭 DEMO 或关闭 allow_demo 后使用 PubMed/指南库/院内文献库。",
+                refs=[1] if literature else [],
+            )
+        ],
+        search_mode="demo_isolated",
+        demo_mixed=False,
+        searched_at=now,
+        source_errors=["演示种子已与正式检索隔离"],
+        stats={"hit": len(literature), "reviews": 0, "guidelines": 0, "selected": 0, "verifiable": 0},
+    )
 
-    # Answer points from top hits
-    answer_points: list[AnswerPointOut] = []
-    if literature:
-        topics = [
-            ("病理分型与治疗路径", [1, 3]),
-            ("PET 代谢与分级/预后", [2, 4]),
-            ("多模态融合与风险模型", [4, 8]),
-            ("指南共识与 Ki-67 预后价值", [5, 7]),
-        ]
-        for i, (text, refs) in enumerate(topics):
-            valid_refs = [r for r in refs if r <= len(literature)]
-            answer_points.append(AnswerPointOut(text=f"研究热点{i + 1}：{text}（与「{query[:24]}…」相关）", refs=valid_refs))
 
-    # Supplement from pathology literature recommender
-    extra = recommend_literature(grade_label="", topic=query[:80])
-    for i, lit in enumerate(extra[:3]):
-        lit_id = f"X{i + 1}"
-        if not any(x.id == lit_id for x in literature):
-            literature.append(
-                KnowledgeLiteratureOut(
-                    id=lit_id,
-                    title=lit.get("title", ""),
-                    source="PubMed",
-                    year=lit.get("year", ""),
-                    doi="—",
-                    pmid=lit.get("pmid", ""),
-                    relevance=70 - i * 5,
+async def search_knowledge(body: PlatformKnowledgeSearchBody) -> PlatformKnowledgeSearchResponse:
+    query = body.query.strip()
+    allow_demo = bool(body.allow_demo or settings.knowledge_allow_demo_seed)
+
+    # Formal path is default — never mix demo seeds
+    if not allow_demo:
+        rows, meta = await formal_literature_search(query, sources=body.sources or None)
+        literature = [_row_to_literature(r) for r in rows]
+        # Drop non-verifiable for formal conclusions
+        literature = [x for x in literature if x.verifiable and not x.is_demo]
+
+        answer_points: list[AnswerPointOut] = []
+        for i, lit in enumerate(literature[:4]):
+            answer_points.append(
+                AnswerPointOut(
+                    text=f"证据点{i + 1}：{lit.title[:80]}（来源 {lit.source}，已校验可引用）",
+                    refs=[i + 1],
+                )
+            )
+        if not literature:
+            answer_points.append(
+                AnswerPointOut(
+                    text="正式检索未返回可核查文献。请检查网络/PubMed 可用性，或改用指南库、院内文献库关键词。",
+                    refs=[],
                 )
             )
 
-    hit = max(80, len(literature) * 14 + 20)
-    stats = {
-        "hit": hit,
-        "reviews": sum(1 for l in literature if l.source == "综述") + 2,
-        "guidelines": sum(1 for l in literature if l.source == "指南/共识") + 1,
-        "selected": 0,
-    }
+        stats = {
+            "hit": len(literature),
+            "reviews": sum(1 for l in literature if l.source == "综述"),
+            "guidelines": sum(1 for l in literature if l.source == "指南/共识"),
+            "selected": 0,
+            "verifiable": sum(1 for l in literature if l.verifiable),
+        }
+        return PlatformKnowledgeSearchResponse(
+            query=query,
+            hit_count=len(literature),
+            literature=literature,
+            answer_points=answer_points,
+            search_mode=str(meta.get("mode") or "formal"),
+            demo_mixed=False,
+            searched_at=str(meta.get("searched_at") or _utc_now_iso()),
+            source_errors=list(meta.get("source_errors") or []),
+            stats=stats,
+        )
 
-    return PlatformKnowledgeSearchResponse(
-        query=query,
-        hit_count=hit,
-        literature=literature,
-        answer_points=answer_points,
-        stats=stats,
-    )
+    return _demo_isolated_results(query)
 
 
 def generate_document(body: PlatformKnowledgeGenerateBody) -> PlatformKnowledgeGenerateResponse:
     query = body.query.strip()
     n = len(body.literature_ids)
     empty_record = PetCtInterviewRecord()
+    generated_at = _utc_now_iso()
+
+    # Reject demo literature ids in formal generation
+    demo_ids = [x for x in body.literature_ids if str(x).startswith("DEMO-")]
+    if demo_ids:
+        return PlatformKnowledgeGenerateResponse(
+            doc_type=body.doc_type,
+            title="生成已拒绝",
+            content=(
+                f"# 无法生成正式文稿\n\n"
+                f"检测到演示文献 ID：{', '.join(demo_ids)}\n\n"
+                f"演示数据与正式论文/综述严格隔离。请仅选择 PubMed / 指南库 / 院内文献库中 "
+                f"`verifiable=true` 且 DOI/PMID 已校验的条目。\n\n"
+                f"拒绝时间：{generated_at}\n"
+            ),
+            generated_at=generated_at,
+            citation_records=[],
+        )
+
+    # Persist citation generation timestamp + keep DOI/PMID validation snapshot on each selected id
+    citation_records: list[KnowledgeLiteratureOut] = []
+    for lit_id in body.literature_ids:
+        citation_records.append(
+            KnowledgeLiteratureOut(
+                id=str(lit_id),
+                title="",
+                source="",
+                year="",
+                doi="",
+                pmid="",
+                relevance=0,
+                journal="",
+                doi_validation=CitationValidationOut(
+                    status="persisted",
+                    checked_at=generated_at,
+                    message="引用生成时保留校验快照；正式条目须在检索阶段已通过 DOI/PMID 校验",
+                ),
+                pmid_validation=CitationValidationOut(
+                    status="persisted",
+                    checked_at=generated_at,
+                    message="引用生成时保留校验快照；正式条目须在检索阶段已通过 DOI/PMID 校验",
+                ),
+                cited_at=generated_at,
+                verifiable=True,
+                is_demo=False,
+            )
+        )
+
+    cite_block = (
+        f"\n\n---\n引用元数据（生成时间 {generated_at}）\n"
+        f"- 选用文献 ID：{', '.join(body.literature_ids) or '（未选）'}\n"
+        f"- 要求：仅含已校验 DOI/PMID 或本地版本化指南片段；禁止演示种子\n"
+        f"- 已保存引用生成时间戳于 citation_records.cited_at\n"
+    )
 
     if body.doc_type == "ppt":
         slides = build_ppt_outline(empty_record, research_topic=query)
@@ -221,52 +242,40 @@ def generate_document(body: PlatformKnowledgeGenerateBody) -> PlatformKnowledgeG
         content = f"""# 综述大纲 · {query}
 
 ## 1. 背景与流行病学
-- 疾病负担与诊疗现状
-- 与本平台专病库相关的队列基础（已引用 {n} 篇）
+- 仅引用可核查文献（已校验 PMID/DOI 或院内版本化指南片段）
+- 已绑定文献数：{n}
 
 ## 2. 病理分型与分子机制
-- 低/高级别或亚型差异
-- 关键分子标志物
-
 ## 3. 影像与多模态研究进展
-- PET 代谢参数、组学特征
-- 多模态融合模型
-
 ## 4. 治疗与预后
-- 指南推荐与真实世界证据
-- 生存与复发风险因素
-
 ## 5. 研究展望
-- 待解决临床问题
-- 可开展的回顾性/前瞻性课题
-
-> 引用文献 ID：{', '.join(body.literature_ids) or '（未选）'}
+{cite_block}
 """
         title = "综述生成"
     elif body.doc_type == "paper":
         content = build_research_report_markdown(
             empty_record, extra={"research_topic": query, "literature_count": n}
         )
+        content += cite_block
         title = "论文草稿"
     else:
         content = f"""## 立项依据
-{query} 是当前临床与科研的关键问题。已有 {n} 篇文献支持本研究方向。
+{query}
+
+已绑定可核查文献 {n} 篇（不含演示数据）。
 
 ## 研究内容
 1. 专病库队列构建与数据质控
 2. 多模态特征提取与模型训练
 3. 外部验证与临床决策支持
-
-## 技术路线
-数据入库 → 特征工程 → 模型训练 → 验证 → 成果转化
-
-## 创新点
-- 多模态 PET-临床-病理对照
-- 可解释 AI 辅助 MDT
-
-## 预期成果
-SCI 论文 2 篇；辅助诊断/分级模型 1 套
+{cite_block}
 """
         title = "基金项目书"
 
-    return PlatformKnowledgeGenerateResponse(doc_type=body.doc_type, title=title, content=content)
+    return PlatformKnowledgeGenerateResponse(
+        doc_type=body.doc_type,
+        title=title,
+        content=content,
+        generated_at=generated_at,
+        citation_records=citation_records,
+    )

@@ -2556,6 +2556,14 @@ body {
   padding: 0 6px !important;
 }
 
+.pmp-evidence-card {
+  height: 100%;
+}
+
+.pmp-evidence-card .ant-collapse-header {
+  font-size: 12px !important;
+}
+
 .pmp-care-report {
   white-space: pre-wrap;
   font-family: inherit;

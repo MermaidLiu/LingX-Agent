@@ -62,6 +62,8 @@ async def ingest_upload_bytes(filename: str, content: bytes) -> tuple[PetCtInter
 async def analyze_chat_uploads(
     file_items: list[tuple[str, bytes]],
     intent: AnalysisIntentBody,
+    *,
+    simple_qa_only: bool = False,
 ) -> PlatformChatAnalyzeResponse:
     records: list[PetCtInterviewRecord] = []
     ingest_notes: list[str] = []
@@ -127,6 +129,7 @@ async def analyze_chat_uploads(
         fusion_summary=str(fusion.get("fusion_summary", "")),
         ingest_notes=ingest_notes,
         pathology_imaging=pathology_grade,
+        simple_qa_only=simple_qa_only,
     )
 
     return PlatformChatAnalyzeResponse(

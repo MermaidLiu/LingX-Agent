@@ -182,10 +182,44 @@ class CarePathwayAnalyzeBody(BaseModel):
     record: PetCtInterviewRecord
 
 
+class GuidelineFragmentRef(BaseModel):
+    fragment_id: str = ""
+    guideline_id: str = ""
+    title: str = ""
+    version: str = ""
+    section: str = ""
+    excerpt: str = ""
+    source_type: str = "指南/共识"
+    published_at: str = ""
+
+
+class PatientEvidenceRef(BaseModel):
+    id: str = ""
+    kind: str = ""
+    label: str = ""
+    value: str = ""
+    source: str = ""
+
+
+class TreatmentEvidenceCard(BaseModel):
+    """MDT 待确认草案：每条治疗推荐绑定本地版本化指南片段与患者证据。"""
+
+    id: str = ""
+    status: str = "MDT待确认草案"
+    priority: str = ""
+    recommendation: str = ""
+    guideline_fragments: list[GuidelineFragmentRef] = Field(default_factory=list)
+    patient_evidence: list[PatientEvidenceRef] = Field(default_factory=list)
+    generated_at: str = ""
+    requires_mdt_confirmation: bool = True
+
+
 class CarePathwayTreatmentBlock(BaseModel):
     recommendations: list[str] = Field(default_factory=list)
+    evidence_cards: list[TreatmentEvidenceCard] = Field(default_factory=list)
     grade_label: str = ""
-    mdt_recommended: bool = False
+    mdt_recommended: bool = True
+    draft_status: str = "MDT待确认草案"
     guideline_refs: list[str] = Field(default_factory=list)
     llm_used: bool = False
     llm_model: str = ""
@@ -196,7 +230,7 @@ class CarePathwayAnalyzeResponse(BaseModel):
     api_conclusion: str = ""
     inferred_diagnosis: str = ""
     treatment: CarePathwayTreatmentBlock = Field(default_factory=CarePathwayTreatmentBlock)
-    literature: list[dict[str, str]] = Field(default_factory=list)
+    literature: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class PublicationTopicRow(BaseModel):
@@ -272,6 +306,14 @@ class PlatformResearchRunResponse(BaseModel):
     pathology_imaging: PathologyImagingGradeResult | None = None
 
 
+class CitationValidationOut(BaseModel):
+    doi: str = ""
+    pmid: str = ""
+    status: str = "unchecked"  # valid | invalid | unchecked | unavailable
+    checked_at: str = ""
+    message: str = ""
+
+
 class KnowledgeLiteratureOut(BaseModel):
     id: str
     title: str
@@ -280,6 +322,15 @@ class KnowledgeLiteratureOut(BaseModel):
     doi: str
     pmid: str
     relevance: int
+    journal: str = ""
+    doi_validation: CitationValidationOut = Field(default_factory=CitationValidationOut)
+    pmid_validation: CitationValidationOut = Field(default_factory=CitationValidationOut)
+    cited_at: str = ""
+    verifiable: bool = False
+    is_demo: bool = False
+    excerpt: str = ""
+    guideline_fragment_id: str = ""
+    guideline_version: str = ""
 
 
 class AnswerPointOut(BaseModel):
@@ -290,6 +341,7 @@ class AnswerPointOut(BaseModel):
 class PlatformKnowledgeSearchBody(BaseModel):
     query: str
     sources: list[str] = Field(default_factory=list)
+    allow_demo: bool = False  # 正式模式禁止混入演示种子数据
 
 
 class PlatformKnowledgeSearchResponse(BaseModel):
@@ -297,6 +349,10 @@ class PlatformKnowledgeSearchResponse(BaseModel):
     hit_count: int
     literature: list[KnowledgeLiteratureOut]
     answer_points: list[AnswerPointOut]
+    search_mode: str = "formal"  # formal | demo_isolated
+    demo_mixed: bool = False
+    searched_at: str = ""
+    source_errors: list[str] = Field(default_factory=list)
     stats: dict[str, int]
 
 
@@ -310,6 +366,8 @@ class PlatformKnowledgeGenerateResponse(BaseModel):
     doc_type: str
     title: str
     content: str
+    generated_at: str = ""
+    citation_records: list[KnowledgeLiteratureOut] = Field(default_factory=list)
 
 
 class ClinicalVariableIn(BaseModel):

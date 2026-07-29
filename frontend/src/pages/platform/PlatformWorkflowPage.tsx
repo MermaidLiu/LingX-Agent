@@ -325,7 +325,7 @@ export default function PlatformWorkflowPage() {
               加入数据库
             </Title>
             <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-              分析完成并入队后，可在患者数据库（Excel 式总表，含临床/病理/影像）与随访队列查看；最新公开临床指标可在智能对话中通过 DeepSeek 检索。
+              分析完成并入队后，可在患者数据库（Excel 式总表，含临床/病理/影像）与随访队列查看；最新公开临床指标可在智能对话中通过 ReachAPI 大模型检索。
             </Paragraph>
             <Space wrap style={{ marginBottom: 16 }}>
               <Link to="/db/follow-up">

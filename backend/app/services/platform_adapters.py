@@ -361,6 +361,8 @@ def build_platform_overview_stats(
         "with_annotation": with_annotation,
         "imaging": imaging_n,
         "annotation_models": model_runs,
+        "llm_model_count": 0,
+        "llm_provider": "reachapi",
         "dicom_estimate": imaging_n * 400,
         "prediction_accuracy_pct": accuracy,
     }

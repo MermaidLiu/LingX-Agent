@@ -353,12 +353,14 @@ class ModelExplainability(BaseModel):
 
 
 class TreatmentRecommendation(BaseModel):
-    """基于诊断结果的治疗推荐。"""
+    """基于诊断结果的治疗推荐（MDT 待确认草案）。"""
 
     grade_label: str = ""
     recommendations: list[str] = Field(default_factory=list)
     guideline_refs: list[str] = Field(default_factory=list)
     mdt_recommended: bool = False
+    draft_status: str = "MDT待确认草案"
+    evidence_cards: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class PathologyAnalysisResult(BaseModel):

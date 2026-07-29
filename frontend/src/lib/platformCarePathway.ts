@@ -26,19 +26,60 @@ export function inferHistologicGradeLabel(...texts: (string | undefined | null)[
   return "";
 }
 
+export type GuidelineFragmentRef = {
+  fragment_id: string;
+  guideline_id: string;
+  title: string;
+  version: string;
+  section: string;
+  excerpt: string;
+  source_type?: string;
+  published_at?: string;
+};
+
+export type PatientEvidenceRef = {
+  id: string;
+  kind: string;
+  label: string;
+  value: string;
+  source: string;
+};
+
+export type TreatmentEvidenceCard = {
+  id: string;
+  status: string;
+  priority: string;
+  recommendation: string;
+  guideline_fragments: GuidelineFragmentRef[];
+  patient_evidence: PatientEvidenceRef[];
+  generated_at: string;
+  requires_mdt_confirmation: boolean;
+};
+
 export type CarePathwayResult = {
   imaging_report: string;
   api_conclusion: string;
   inferred_diagnosis: string;
   treatment: {
     recommendations: string[];
+    evidence_cards?: TreatmentEvidenceCard[];
     grade_label: string;
     mdt_recommended: boolean;
+    draft_status?: string;
     guideline_refs: string[];
     llm_used?: boolean;
     llm_model?: string;
   };
-  literature: Array<{ title: string; journal: string; year: string; pmid: string }>;
+  literature: Array<{
+    title: string;
+    journal: string;
+    year: string;
+    pmid: string;
+    doi?: string;
+    verifiable?: boolean;
+    cited_at?: string;
+    is_demo?: boolean;
+  }>;
 };
 
 /** Merge workflow clinical fields + platform imaging/PCI into a case record for care-pathway API. */
@@ -107,8 +148,7 @@ export function buildPathologyAnalysisStub(care: CarePathwayResult): PathologyAn
     inferHistologicGradeLabel(care.api_conclusion) ||
     care.treatment.grade_label ||
     "未确定";
-  const composite =
-    grade === "高级别" ? 72 : grade === "低级别" ? 28 : 50;
+  const composite = grade === "高级别" ? 72 : grade === "低级别" ? 28 : 50;
   return {
     diagnosis_summary: care.api_conclusion,
     inferred_diagnosis: care.inferred_diagnosis,

@@ -58,14 +58,33 @@ class Settings(BaseModel):
     api_prefix: str = Field(default_factory=lambda: _e("API_PREFIX", "/api/v1"))
     database_url: str = Field(default_factory=lambda: _e("DATABASE_URL", "sqlite:///./petct_research.db"))
     mongodb_url: str = Field(default_factory=lambda: _e("MONGODB_URL", "mongodb://localhost:27017"))
+    # ReachAPI 中转（OpenAI 兼容）：智能对话 / 智能分析 / 科研 Agent 共用
+    reachapi_api_key: str = Field(default_factory=lambda: _e("REACHAPI_API_KEY", ""))
+    reachapi_base_url: str = Field(
+        default_factory=lambda: _e("REACHAPI_BASE_URL", "https://direct.reachapi.ai/v1")
+    )
+    reachapi_chat_model: str = Field(
+        default_factory=lambda: _e("REACHAPI_CHAT_MODEL", "gpt-5.4-mini")
+    )
     openai_api_key: str = Field(default_factory=lambda: _e("OPENAI_API_KEY", ""))
     openai_base_url: str | None = Field(default_factory=lambda: _e_opt("OPENAI_BASE_URL"))
-    research_llm_model: str = Field(default_factory=lambda: _e("RESEARCH_LLM_MODEL", "gpt-4o"))
+    research_llm_model: str = Field(default_factory=lambda: _e("RESEARCH_LLM_MODEL", "gpt-5.4-mini"))
+    # 兼容旧 DeepSeek 配置；未设 REACHAPI 时仍可用
     deepseek_api_key: str = Field(default_factory=lambda: _e("DEEPSEEK_API_KEY", ""))
-    deepseek_base_url: str = Field(default_factory=lambda: _e("DEEPSEEK_BASE_URL", "https://api.deepseek.com"))
-    deepseek_chat_model: str = Field(default_factory=lambda: _e("DEEPSEEK_CHAT_MODEL", "deepseek-chat"))
+    deepseek_base_url: str = Field(
+        default_factory=lambda: _e("DEEPSEEK_BASE_URL", "https://direct.reachapi.ai/v1")
+    )
+    deepseek_chat_model: str = Field(
+        default_factory=lambda: _e("DEEPSEEK_CHAT_MODEL", "gpt-5.4-mini")
+    )
     petct_model_path: str = Field(default_factory=lambda: _e("PETCT_MODEL_PATH", "models/petct_seg_model.pth"))
     demo_mode: bool = Field(default_factory=lambda: _e_bool("DEMO_MODE", False))
+    # PubMed E-utilities identification (NCBI recommends tool + email)
+    pubmed_email: str = Field(default_factory=lambda: _e("PUBMED_EMAIL", "research@localhost"))
+    # When False (default), knowledge search never mixes demo seed literature
+    knowledge_allow_demo_seed: bool = Field(
+        default_factory=lambda: _e_bool("KNOWLEDGE_ALLOW_DEMO_SEED", False)
+    )
     pathology_imaging_api_url: str = Field(
         default_factory=lambda: _e(
             "PATHOLOGY_IMAGING_API_URL",
@@ -95,6 +114,19 @@ class Settings(BaseModel):
     )
     pci_poll_max_attempts: int = Field(default_factory=lambda: int(_e("PCI_POLL_MAX_ATTEMPTS", "0")))
     cors_allow_origins: list[str] = Field(default_factory=_e_cors_origins)
+    # Membership / quota
+    auth_secret: str = Field(
+        default_factory=lambda: _e("AUTH_SECRET", "pmp-dev-auth-secret-change-me")
+    )
+    free_llm_quota: int = Field(default_factory=lambda: int(_e("FREE_LLM_QUOTA", "10")))
+    pro_price_usd: float = Field(default_factory=lambda: float(_e("PRO_PRICE_USD", "199")))
+    pro_duration_days: int = Field(default_factory=lambda: int(_e("PRO_DURATION_DAYS", "30")))
+    billing_merchant_name: str = Field(
+        default_factory=lambda: _e(
+            "BILLING_MERCHANT_NAME",
+            "Hong Kong LingX Medical Tech Ltd",
+        )
+    )
 
 
 settings = Settings()

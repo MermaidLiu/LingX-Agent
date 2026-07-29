@@ -40,6 +40,7 @@ import {
   loadPlatformSession,
   setPathologyImagingResult,
   markSaved,
+  saveCarePathwayResult,
 } from "../../lib/platformSession";
 import { hasAnnotatedImage } from "../../lib/pathologyImage";
 import { buildPciConclusion, normalizePciRegions, pciRegionScoreTone, sumPciRegions } from "../../lib/pciRegions";
@@ -583,9 +584,10 @@ export default function PlatformDiagnosisPage() {
       saveWorkflowCase(record);
       const result = await runCarePathwayAnalysis(imaging, examId);
       setCareResult(result);
+      saveCarePathwayResult(result);
       setInFollowUp(isInFollowUpQueue(record.patient_base_info.exam_id));
     } catch {
-      message.warning("治疗建议生成失败，请确认后端已启动且 DeepSeek 配置可用");
+      message.warning("治疗建议生成失败，请确认后端已启动且 ReachAPI 配置可用");
     } finally {
       setCareLoading(false);
     }

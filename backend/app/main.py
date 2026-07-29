@@ -11,9 +11,11 @@ from sqlalchemy.orm import Session
 from app.api.routes.platform import router as platform_router
 from app.api.routes.diseases import router as diseases_router
 from app.api.routes.lingxi_modules import router as lingxi_modules_router
+from app.api.routes.auth_billing import router as auth_billing_router
 from app.core.config import settings
 from app.core.database import Base, SessionLocal, engine, get_db
 from app.core.db_migrate import ensure_sqlite_columns
+from app.models import orm as _orm  # noqa: F401 — register User/Guest/Payment tables
 from app.demo_fixtures import (
     SAMPLE_EXTRACT_DEMO_NOTE,
     SAMPLE_INTERVIEW_RECORD,
@@ -46,6 +48,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
 
 app.include_router(platform_router, prefix=f"{settings.api_prefix}/platform", tags=["Platform·工作台"])
+app.include_router(auth_billing_router, prefix=f"{settings.api_prefix}/auth", tags=["账户·登录与PRO"])
 app.include_router(diseases_router, prefix=f"{settings.api_prefix}/diseases", tags=["病种库"])
 app.include_router(lingxi_modules_router, prefix=f"{settings.api_prefix}/modules", tags=["PMP Agent·核心模块"])
 

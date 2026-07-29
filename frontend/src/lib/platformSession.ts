@@ -1,8 +1,10 @@
 import type { ChatAnalyzeResult, PathologyImagingGradeResult, PlatformDiagnosis } from "../api/platform";
 import type { PetCtInterviewRecord } from "../api/client";
+import type { CarePathwayResult } from "./platformCarePathway";
 import { cachePathologyImage, clearPathologyImageCache, fingerprintImageKey, loadPathologyImage } from "./pathologyImagingCache";
 
 const SESSION_KEY = "pmp_platform_session";
+const CARE_PATHWAY_KEY = "pmp_care_pathway_result";
 
 /** Full pathology result (incl. base64 image) — in-memory only, not sessionStorage. */
 let pathologyImagingFull: PathologyImagingGradeResult | null = null;
@@ -191,4 +193,26 @@ export async function hydratePathologyImagingResult(
     }
   }
   return result;
+}
+
+/** Persist MDT treatment evidence cards separately (avoid bloating main session). */
+export function saveCarePathwayResult(result: CarePathwayResult | null) {
+  try {
+    if (!result) {
+      sessionStorage.removeItem(CARE_PATHWAY_KEY);
+      return;
+    }
+    sessionStorage.setItem(CARE_PATHWAY_KEY, JSON.stringify(result));
+  } catch {
+    /* ignore quota */
+  }
+}
+
+export function loadCarePathwayResult(): CarePathwayResult | null {
+  try {
+    const raw = sessionStorage.getItem(CARE_PATHWAY_KEY);
+    return raw ? (JSON.parse(raw) as CarePathwayResult) : null;
+  } catch {
+    return null;
+  }
 }
