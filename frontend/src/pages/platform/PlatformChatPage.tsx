@@ -211,7 +211,7 @@ export default function PlatformChatPage() {
                 {m.role === "assistant" && m.id !== "welcome" ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                     <Text strong>PMP 智能体</Text>
-                    {m.llmUsed ? <Tag color="blue">ReachAPI · {m.llmModel || "gpt-5.4-mini"}</Tag> : null}
+                    {m.llmUsed ? <Tag color="blue">ReachAPI · {m.llmModel || "gpt-5.6-sol"}</Tag> : null}
                   </div>
                 ) : null}
                 {m.files?.length ? (

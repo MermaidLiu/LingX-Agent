@@ -16,7 +16,7 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 DEFAULT_REACHAPI_BASE = "https://direct.reachapi.ai/v1"
-DEFAULT_CHAT_MODEL = "gpt-5.4-mini"
+DEFAULT_CHAT_MODEL = "gpt-5.6-sol"
 
 
 def llm_api_key() -> str:

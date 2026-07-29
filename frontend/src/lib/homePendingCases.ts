@@ -147,7 +147,7 @@ export function buildHomeOverviewStats(
       value: String(modelCount),
       delta:
         llmCount > 0
-          ? `ReachAPI · 默认 ${platform?.llm_chat_model || "gpt-5.4-mini"}`
+          ? `ReachAPI · 默认 ${platform?.llm_chat_model || "gpt-5.6-sol"}`
           : platform?.imaging != null
             ? `${platform.imaging} 例有影像 · ${summary.withAnnotation} 例已分割`
             : `${summary.withAnnotation} 例已分割`,
