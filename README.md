@@ -58,8 +58,14 @@ sudo PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple bash deploy/deploy-s
 sudo SERVER_NAME=your.domain.com bash deploy/deploy-server.sh
 ```
 
-脚本会自动：安装 Python/Node/Nginx → 构建前端 → 配置 systemd 后端 → Nginx 反代。  
+脚本会自动：安装 Python/Node/Nginx → **导入冒烟测试** → 构建前端 → 配置 systemd 后端（等待 `/health`）→ Nginx 反代。  
 部署完成后浏览器访问 **`http://服务器公网IP`** 即可。
+
+仅保证云上后端启动/重启（不构建前端）：
+
+```bash
+sudo bash deploy/ensure-backend-cloud.sh
+```
 
 从 GitHub 克隆并一键部署（整行复制）：
 
@@ -67,6 +73,11 @@ sudo SERVER_NAME=your.domain.com bash deploy/deploy-server.sh
 git clone https://github.com/MermaidLiu/LingX-Agent.git && cd LingX-Agent && sudo PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple bash deploy/deploy-server.sh
 ```
 
+**云上后端必查：**
+
+1. `backend/.env` 中配置 `REACHAPI_API_KEY`、`CORS_ORIGINS`（公网 IP 或域名）
+2. `curl -sf http://127.0.0.1:8000/health` 应返回 `{"status":"ok"}`
+3. 日志：`journalctl -u pmp-backend -f`
 启动后访问：
 
 - 前端工作台：http://127.0.0.1:5173
