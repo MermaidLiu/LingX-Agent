@@ -54,9 +54,12 @@ def is_llm_available() -> bool:
 
 
 def llm_auth_headers() -> dict[str, str]:
+    """ReachAPI OpenAI-compatible auth — must be: Authorization: Bearer <key>."""
+    key = llm_api_key()
     return {
-        "Authorization": f"Bearer {llm_api_key()}",
+        "Authorization": f"Bearer {key}",
         "Content-Type": "application/json",
+        "Accept": "application/json",
     }
 
 
@@ -70,10 +73,11 @@ async def chat_completions(
 ) -> tuple[str, str]:
     """Return (content, model_id). Raises on HTTP / empty response."""
     if not is_llm_available():
-        raise RuntimeError("LLM API Key 未配置")
+        raise RuntimeError("LLM API Key 未配置（请在 backend/.env 设置 REACHAPI_API_KEY）")
 
     model_id = (model or llm_chat_model()).strip()
     url = f"{llm_base_url()}/chat/completions"
+    headers = llm_auth_headers()
     body = {
         "model": model_id,
         "messages": messages,
@@ -81,12 +85,27 @@ async def chat_completions(
         "max_tokens": max_tokens,
     }
     async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.post(url, headers=llm_auth_headers(), json=body)
-        resp.raise_for_status()
+        resp = await client.post(url, headers=headers, json=body)
+        if resp.status_code >= 400:
+            # Surface ReachAPI body so ops can verify header / model / balance
+            detail = (resp.text or "")[:800]
+            logger.error(
+                "ReachAPI chat failed status=%s url=%s model=%s auth_scheme=%s body=%s",
+                resp.status_code,
+                url,
+                model_id,
+                "Bearer" if headers.get("Authorization", "").startswith("Bearer ") else "missing",
+                detail,
+            )
+            raise RuntimeError(f"ReachAPI HTTP {resp.status_code}: {detail}")
         data = resp.json()
+    if isinstance(data, dict) and data.get("error"):
+        err = data["error"]
+        msg = err.get("message") if isinstance(err, dict) else str(err)
+        raise RuntimeError(f"ReachAPI error: {msg}")
     choices = data.get("choices") or []
     if not choices:
-        raise ValueError("LLM 返回空 choices")
+        raise ValueError(f"LLM 返回空 choices: {str(data)[:400]}")
     content = (choices[0].get("message") or {}).get("content") or ""
     content = str(content).strip()
     if not content:
