@@ -170,6 +170,7 @@ class PlatformChatAnalyzeResponse(BaseModel):
     ai_reply: str = ""
     llm_model: str = ""
     llm_used: bool = False
+    llm_provider: str = ""
 
 
 class PathologySaveRequest(BaseModel):
@@ -180,6 +181,7 @@ class PathologySaveRequest(BaseModel):
 class CarePathwayAnalyzeBody(BaseModel):
     imaging: PathologyImagingGradeResult
     record: PetCtInterviewRecord
+    llm_provider: str = ""
 
 
 class GuidelineFragmentRef(BaseModel):

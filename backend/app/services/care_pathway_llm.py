@@ -10,7 +10,7 @@ from typing import Any
 from app.models.domain import PetCtInterviewRecord
 from app.models.platform_schemas import PathologyImagingGradeResult
 from app.services.literature_sources import formal_literature_search
-from app.services.llm_gateway import chat_completions, is_llm_available, llm_chat_model
+from app.services.llm_gateway import chat_completions, is_llm_available, llm_chat_model, normalize_provider
 from app.services.pathology_grader import infer_histologic_grade_label
 from app.services.treatment_evidence import (
     DRAFT_STATUS,
@@ -123,10 +123,12 @@ async def _llm_recommendation_lines(
     grade_label: str,
     *,
     allow_llm: bool = True,
+    llm_provider: str | None = None,
 ) -> tuple[list[str], bool, str, bool]:
     """Returns (lines, mdt, model, llm_used)."""
-    model = llm_chat_model()
-    if not allow_llm or not is_llm_available():
+    provider = normalize_provider(llm_provider)
+    model = llm_chat_model(provider)
+    if not allow_llm or not is_llm_available(provider):
         return [], grade_label in ("高级别", "未确定"), "rule-engine", False
 
     user_msg = (
@@ -140,6 +142,7 @@ async def _llm_recommendation_lines(
                 {"role": "system", "content": TREATMENT_SYSTEM_PROMPT},
                 {"role": "user", "content": user_msg},
             ],
+            provider=provider,
             temperature=0.25,
             max_tokens=1200,
             timeout=90.0,
@@ -171,6 +174,7 @@ async def generate_treatment_recommendations(
     record: PetCtInterviewRecord,
     *,
     allow_llm: bool = True,
+    llm_provider: str | None = None,
 ) -> dict[str, Any]:
     pci = _get_pci_block(imaging)
     conclusion = _api_conclusion(imaging, pci)
@@ -191,7 +195,7 @@ async def generate_treatment_recommendations(
     }
 
     llm_lines, mdt, model, llm_used = await _llm_recommendation_lines(
-        context, grade_label, allow_llm=allow_llm
+        context, grade_label, allow_llm=allow_llm, llm_provider=llm_provider
     )
     patient_evidence = collect_patient_evidence(
         imaging,
@@ -222,9 +226,12 @@ async def analyze_care_pathway(
     record: PetCtInterviewRecord,
     *,
     allow_llm: bool = True,
+    llm_provider: str | None = None,
 ) -> dict[str, Any]:
     imaging_report = build_imaging_report_text(imaging, record)
-    treatment = await generate_treatment_recommendations(imaging, record, allow_llm=allow_llm)
+    treatment = await generate_treatment_recommendations(
+        imaging, record, allow_llm=allow_llm, llm_provider=llm_provider
+    )
     grade = treatment.get("grade_label", "未确定")
     # Formal literature only — never seed/demo fake PMIDs
     query = f"pseudomyxoma peritonei {grade} CRS HIPEC"

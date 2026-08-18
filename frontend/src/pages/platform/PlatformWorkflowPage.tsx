@@ -3,6 +3,7 @@ import { App, Button, Col, DatePicker, Form, Input, InputNumber, Row, Select, Sp
 import type { UploadFile } from "antd/es/upload/interface";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { LlmProviderSelect } from "../../components/platform/LlmProviderSelect";
 import { MOCK_PATIENTS, WORKFLOW_STEPS } from "../../data/platformMock";
 import {
   getPendingCaseFileNames,
@@ -282,6 +283,12 @@ export default function PlatformWorkflowPage() {
                   {getPendingCaseFileNames().length > 0 ? (
                     <AlertLike text={`已缓存 ${getPendingCaseFileNames().length} 个文件，可直接开始智能分析`} />
                   ) : null}
+                  <div style={{ marginBottom: 12 }}>
+                    <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 6 }}>
+                      大模型（治疗草案润色 / 对话）
+                    </Text>
+                    <LlmProviderSelect size="middle" />
+                  </div>
                   <Button
                     type="primary"
                     size="large"

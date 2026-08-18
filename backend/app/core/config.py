@@ -69,13 +69,13 @@ class Settings(BaseModel):
     openai_api_key: str = Field(default_factory=lambda: _e("OPENAI_API_KEY", ""))
     openai_base_url: str | None = Field(default_factory=lambda: _e_opt("OPENAI_BASE_URL"))
     research_llm_model: str = Field(default_factory=lambda: _e("RESEARCH_LLM_MODEL", "gpt-5.6-sol"))
-    # 兼容旧 DeepSeek 配置；未设 REACHAPI 时仍可用
+    # DeepSeek 官方 OpenAI 兼容接口（与 ReachAPI 分开选）
     deepseek_api_key: str = Field(default_factory=lambda: _e("DEEPSEEK_API_KEY", ""))
     deepseek_base_url: str = Field(
-        default_factory=lambda: _e("DEEPSEEK_BASE_URL", "https://direct.reachapi.ai/v1")
+        default_factory=lambda: _e("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     )
     deepseek_chat_model: str = Field(
-        default_factory=lambda: _e("DEEPSEEK_CHAT_MODEL", "gpt-5.6-sol")
+        default_factory=lambda: _e("DEEPSEEK_CHAT_MODEL", "deepseek-chat")
     )
     petct_model_path: str = Field(default_factory=lambda: _e("PETCT_MODEL_PATH", "models/petct_seg_model.pth"))
     demo_mode: bool = Field(default_factory=lambda: _e_bool("DEMO_MODE", False))

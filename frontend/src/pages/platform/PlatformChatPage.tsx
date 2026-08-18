@@ -12,6 +12,8 @@ import type { UploadFile } from "antd/es/upload/interface";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { platformChatAnalyze, platformChatSave } from "../../api/platform";
+import { LlmProviderSelect } from "../../components/platform/LlmProviderSelect";
+import { loadLlmProvider, providerDisplayName, type LlmProviderId } from "../../lib/llmProvider";
 import {
   filesToUploadFiles,
   getPendingCaseFiles,
@@ -34,6 +36,7 @@ type ChatMessage = {
   gradeImage?: string;
   llmUsed?: boolean;
   llmModel?: string;
+  llmProvider?: string;
 };
 
 function fileIcon(name: string) {
@@ -89,6 +92,7 @@ export default function PlatformChatPage() {
     },
   ]);
   const [syncedFromWorkbench, setSyncedFromWorkbench] = useState(false);
+  const [llmProvider, setLlmProvider] = useState<LlmProviderId>(() => loadLlmProvider());
 
   useEffect(() => {
     const pending = getPendingCaseFiles();
@@ -133,14 +137,18 @@ export default function PlatformChatPage() {
 
     try {
       const pathology = getPathologyImagingOrNull();
-      const result = await platformChatAnalyze(uploadFiles, {
-        question: text || "请基于上传的数据给出分析结论与建议。",
-        variables: "",
-        outcome: "grade",
-        notes: pathology?.grade_label
-          ? `工作台影像诊断：${pathology.grade_label}${pathology.confidence != null ? `，置信度 ${(pathology.confidence * 100).toFixed(0)}%` : ""}`
-          : "",
-      });
+      const result = await platformChatAnalyze(
+        uploadFiles,
+        {
+          question: text || "请基于上传的数据给出分析结论与建议。",
+          variables: "",
+          outcome: "grade",
+          notes: pathology?.grade_label
+            ? `工作台影像诊断：${pathology.grade_label}${pathology.confidence != null ? `，置信度 ${(pathology.confidence * 100).toFixed(0)}%` : ""}`
+            : "",
+        },
+        { llmProvider },
+      );
       setAnalysisResult(result);
       setPendingCaseFiles(uploadFiles);
 
@@ -162,6 +170,7 @@ export default function PlatformChatPage() {
         gradeImage: result.pathology_imaging?.result_image_base64 || undefined,
         llmUsed: result.llm_used,
         llmModel: result.llm_model,
+        llmProvider: result.llm_provider || llmProvider,
       };
       setMessages((prev) => [...prev, aiMsg]);
     } catch (e) {
@@ -211,7 +220,9 @@ export default function PlatformChatPage() {
                 {m.role === "assistant" && m.id !== "welcome" ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                     <Text strong>PMP 智能体</Text>
-                    {m.llmUsed ? <Tag color="blue">ReachAPI · {m.llmModel || "gpt-5.6-sol"}</Tag> : null}
+                    {m.llmUsed ? (
+                      <Tag color="blue">{providerDisplayName(m.llmProvider, m.llmModel)}</Tag>
+                    ) : null}
                   </div>
                 ) : null}
                 {m.files?.length ? (
@@ -313,6 +324,7 @@ export default function PlatformChatPage() {
                 }
               }}
             />
+            <LlmProviderSelect compact size="middle" value={llmProvider} onChange={setLlmProvider} />
             <Button type="primary" icon={<SendOutlined />} loading={loading} onClick={handleSend}>
               分析
             </Button>

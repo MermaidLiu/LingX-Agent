@@ -175,7 +175,7 @@ export function CarePathwayPanel({
                     须 MDT 确认
                   </Tag>
                   {careResult.treatment.llm_used ? (
-                    <Tag color="purple">ReachAPI 润色条文</Tag>
+                    <Tag color="purple">{careResult.treatment.llm_model || "大模型"} 润色条文</Tag>
                   ) : (
                     <Tag>本地证据卡模板</Tag>
                   )}

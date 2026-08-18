@@ -12,7 +12,7 @@ from app.models.platform_schemas import (
     PathologyImagingGradeResult,
     PlatformDiagnosisResult,
 )
-from app.services.llm_gateway import chat_completions, is_llm_available, llm_chat_model
+from app.services.llm_gateway import chat_completions, is_llm_available, llm_chat_model, normalize_provider
 
 logger = logging.getLogger(__name__)
 
@@ -131,14 +131,16 @@ async def generate_chat_reply(
     pathology_imaging: PathologyImagingGradeResult | None,
     *,
     simple_qa_only: bool = False,
+    llm_provider: str | None = None,
 ) -> tuple[str, str, bool]:
     """Return (reply_text, model_name, used_llm)."""
     extra = [n for n in ingest_notes if n]
     if pathology_imaging and pathology_imaging.message:
         extra.append(pathology_imaging.message)
 
-    model = llm_chat_model()
-    if not is_llm_available():
+    provider = normalize_provider(llm_provider)
+    model = llm_chat_model(provider)
+    if not is_llm_available(provider):
         return format_fallback_reply(diagnosis, intent.question, extra), "rule-engine", False
 
     if simple_qa_only:
@@ -162,6 +164,7 @@ async def generate_chat_reply(
     try:
         content, model_id = await chat_completions(
             messages,
+            provider=provider,
             temperature=0.3,
             max_tokens=max_tokens,
         )

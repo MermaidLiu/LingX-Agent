@@ -101,6 +101,8 @@ ensure_env_kv "FREE_LLM_QUOTA" "10"
 ensure_env_kv "PRO_PRICE_USD" "199"
 ensure_env_kv "REACHAPI_BASE_URL" "https://direct.reachapi.ai/v1"
 ensure_env_kv "REACHAPI_CHAT_MODEL" "gpt-5.6-sol"
+ensure_env_kv "DEEPSEEK_BASE_URL" "https://api.deepseek.com"
+ensure_env_kv "DEEPSEEK_CHAT_MODEL" "deepseek-chat"
 ensure_env_kv "PATHOLOGY_IMAGING_API_TIMEOUT" "720"
 
 if ! grep -qE '^REACHAPI_API_KEY=.+' "$BACKEND_DIR/.env"; then

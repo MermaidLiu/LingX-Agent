@@ -174,6 +174,7 @@ export type ChatAnalyzeResult = {
   ai_reply?: string;
   llm_model?: string;
   llm_used?: boolean;
+  llm_provider?: string;
 };
 
 export type ResearchResultRow = {
@@ -213,13 +214,18 @@ export type KnowledgeLiterature = {
 
 export type AnswerPoint = { text: string; refs: number[] };
 
-export async function platformChatAnalyze(files: File[], intent: AnalysisIntent) {
+export async function platformChatAnalyze(
+  files: File[],
+  intent: AnalysisIntent,
+  opts?: { llmProvider?: string },
+) {
   const form = new FormData();
   files.forEach((f) => form.append("files", f));
   form.append("question", intent.question);
   form.append("variables", intent.variables);
   form.append("outcome", intent.outcome);
   form.append("notes", intent.notes);
+  if (opts?.llmProvider) form.append("llm_provider", opts.llmProvider);
   const { data } = await api.post<ChatAnalyzeResult>("/api/v1/platform/chat/analyze", form, {
     headers: { "Content-Type": "multipart/form-data" },
   });
@@ -517,11 +523,27 @@ export type CarePathwayAnalyzeResult = {
 export async function platformCarePathwayAnalyze(
   imaging: PathologyImagingGradeResult,
   record: PetCtInterviewRecord,
+  opts?: { llmProvider?: string },
 ) {
   const { data } = await api.post<CarePathwayAnalyzeResult>("/api/v1/platform/care-pathway/analyze", {
     imaging,
     record,
+    llm_provider: opts?.llmProvider || "",
   });
+  return data;
+}
+
+export async function platformListLlmProviders() {
+  const { data } = await api.get<{
+    providers: Array<{
+      id: "reachapi" | "deepseek";
+      label: string;
+      model: string;
+      configured: boolean;
+      base_url: string;
+    }>;
+    default: string;
+  }>("/api/v1/platform/llm/providers");
   return data;
 }
 

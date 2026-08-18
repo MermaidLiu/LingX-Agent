@@ -88,6 +88,7 @@ async def platform_chat_analyze(
     variables: str = Form(""),
     outcome: str = Form(""),
     notes: str = Form(""),
+    llm_provider: str = Form(""),
     db: Session = Depends(get_db),
     authorization: str | None = Header(default=None),
     x_guest_id: str | None = Header(default=None, alias="X-Guest-Id"),
@@ -102,6 +103,7 @@ async def platform_chat_analyze(
         file_items,
         intent,
         simple_qa_only=bool(snap.get("simple_qa_only")),
+        llm_provider=llm_provider,
     )
     if result.llm_used:
         consume_llm_quota(db, user=user, guest=guest)
@@ -504,7 +506,9 @@ async def platform_care_pathway_analyze(
     user, guest, snap = resolve_identity(db, authorization=authorization, guest_id=x_guest_id or "anonymous")
     # Free users with no remaining quota still get local evidence cards (no LLM polish)
     allow_llm = bool(snap.get("is_pro") or (snap.get("llm_remaining") or 0) > 0)
-    raw = await analyze_care_pathway(body.imaging, body.record, allow_llm=allow_llm)
+    raw = await analyze_care_pathway(
+        body.imaging, body.record, allow_llm=allow_llm, llm_provider=body.llm_provider
+    )
     treatment = raw.get("treatment") or {}
     if allow_llm and treatment.get("llm_used"):
         consume_llm_quota(db, user=user, guest=guest)
@@ -645,9 +649,17 @@ def platform_clinical_dataset_analyze(body: ClinicalDatasetAnalyzeBody) -> Clini
         raise HTTPException(status_code=500, detail=f"分析失败：{e}") from e
 
 
+@router.get("/llm/providers")
+def platform_llm_providers() -> dict[str, Any]:
+    from app.services.llm_gateway import default_provider, list_provider_summaries
+
+    providers = list_provider_summaries()
+    return {"providers": providers, "default": default_provider()}
+
+
 @router.get("/stats")
 async def platform_stats(db: Session = Depends(get_db)) -> dict[str, Any]:
-    from app.services.llm_gateway import count_models, is_llm_available, llm_base_url, llm_chat_model
+    from app.services.llm_gateway import count_models, default_provider, is_llm_available, llm_base_url, llm_chat_model
 
     rows = pet_ct_case.list_all(db, limit=5000)
     records = [pet_ct_case.orm_to_record(r) for r in rows]
@@ -655,7 +667,7 @@ async def platform_stats(db: Session = Depends(get_db)) -> dict[str, Any]:
     stats = build_platform_overview_stats(patients, records)
     llm_n = await count_models() if is_llm_available() else 0
     stats["llm_model_count"] = llm_n
-    stats["llm_provider"] = "reachapi" if is_llm_available() else "offline"
+    stats["llm_provider"] = default_provider() if is_llm_available() else "offline"
     stats["llm_chat_model"] = llm_chat_model() if is_llm_available() else ""
     stats["llm_base_url"] = llm_base_url() if is_llm_available() else ""
     return stats

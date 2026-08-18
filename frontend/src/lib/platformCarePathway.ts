@@ -137,9 +137,10 @@ export function buildImagingReportText(imaging: PathologyImagingGradeResult): st
 export async function runCarePathwayAnalysis(
   imaging: PathologyImagingGradeResult,
   examId?: string,
+  llmProvider?: string,
 ): Promise<CarePathwayResult> {
   const record = buildRecordForCarePathway(imaging, examId);
-  return platformCarePathwayAnalyze(imaging, record);
+  return platformCarePathwayAnalyze(imaging, record, { llmProvider });
 }
 
 /** Minimal PathologyAnalysisResult for follow-up queue enrollment. */

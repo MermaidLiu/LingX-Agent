@@ -6,6 +6,8 @@ import { platformSavePathologyAnalysis, platformDownloadAnnotationDataset } from
 import type { PathologyImagingGradeResult, PciScoreResult } from "../../api/platform";
 import { saveCase } from "../../api/client";
 import { CarePathwayPanel } from "../../components/platform/CarePathwayPanel";
+import { LlmProviderSelect } from "../../components/platform/LlmProviderSelect";
+import { loadLlmProvider } from "../../lib/llmProvider";
 import { AnnotationSliceViewer } from "../../components/platform/AnnotationSliceViewer";
 import { NiiSliceViewer } from "../../components/platform/NiiSliceViewer";
 import { addToFollowUpQueue, isInFollowUpQueue } from "../../lib/followUpQueue";
@@ -582,12 +584,12 @@ export default function PlatformDiagnosisPage() {
     try {
       const record = buildRecordForCarePathway(imaging, examId);
       saveWorkflowCase(record);
-      const result = await runCarePathwayAnalysis(imaging, examId);
+      const result = await runCarePathwayAnalysis(imaging, examId, loadLlmProvider());
       setCareResult(result);
       saveCarePathwayResult(result);
       setInFollowUp(isInFollowUpQueue(record.patient_base_info.exam_id));
     } catch {
-      message.warning("治疗建议生成失败，请确认后端已启动且 ReachAPI 配置可用");
+      message.warning("治疗建议生成失败，请确认后端已启动且所选大模型配置可用");
     } finally {
       setCareLoading(false);
     }
@@ -782,6 +784,7 @@ export default function PlatformDiagnosisPage() {
           >
             {hasResult ? "重新分析" : "开始分析"}
           </Button>
+          <LlmProviderSelect compact size="small" />
         </Space>
       </div>
 

@@ -13,6 +13,7 @@ from app.models.platform_schemas import AnalysisIntentBody, PathologyImagingGrad
 from app.services.data_extractor import DataExtractor
 from app.services.deepseek_chat import generate_chat_reply
 from app.services.disease_classifier import apply_classification
+from app.services.llm_gateway import normalize_provider
 from app.services.multimodal_fusion import fuse_patient_multimodal
 from app.services.pathology_imaging_client import predict_grade_from_imaging
 from app.services.platform_adapters import build_diagnosis, merge_records
@@ -64,6 +65,7 @@ async def analyze_chat_uploads(
     intent: AnalysisIntentBody,
     *,
     simple_qa_only: bool = False,
+    llm_provider: str | None = None,
 ) -> PlatformChatAnalyzeResponse:
     records: list[PetCtInterviewRecord] = []
     ingest_notes: list[str] = []
@@ -122,6 +124,7 @@ async def analyze_chat_uploads(
         raw=imaging_result.get("raw") if isinstance(imaging_result.get("raw"), dict) else {},
     )
 
+    provider = normalize_provider(llm_provider)
     ai_reply, llm_model, llm_used = await generate_chat_reply(
         intent=intent,
         record=merged,
@@ -130,6 +133,7 @@ async def analyze_chat_uploads(
         ingest_notes=ingest_notes,
         pathology_imaging=pathology_grade,
         simple_qa_only=simple_qa_only,
+        llm_provider=provider,
     )
 
     return PlatformChatAnalyzeResponse(
@@ -142,6 +146,7 @@ async def analyze_chat_uploads(
         ai_reply=ai_reply,
         llm_model=llm_model,
         llm_used=llm_used,
+        llm_provider=provider,
     )
 
 
