@@ -291,6 +291,93 @@ def record_to_patient_row(record: PetCtInterviewRecord, row_id: str | None = Non
     )
 
 
+def apply_patient_row_to_record(
+    record: PetCtInterviewRecord,
+    row: PlatformPatientRow,
+) -> PetCtInterviewRecord:
+    """Merge editable patient-table fields back into a full case record."""
+    p = record.patient_base_info
+    iv = record.interview_info
+    rx = record.research_extensions
+    lab = dict(rx.lab_snapshot or {})
+
+    def _clean(v: str | None, fallback: str = "") -> str:
+        if v is None:
+            return fallback
+        t = str(v).strip()
+        if not t or t == "—":
+            return fallback
+        return t
+
+    name = _clean(row.name, p.name or "")
+    gender = _clean(row.gender, p.gender or "")
+    department = _clean(row.department, p.department or "")
+    physician = _clean(row.physician, p.interview_doctor or "")
+    diagnosis = _clean(row.diagnosis, iv.clinical_diagnosis or "")
+    chief = _clean(row.chiefComplaint, "")
+    treatment = _clean(row.treatmentMethod)
+    surgery = _clean(row.surgeryNumber)
+    iv_chemo = _clean(row.ivChemotherapy)
+    cc = _clean(row.ccScore)
+    grade = _clean(row.gradeLabel)
+
+    if treatment:
+        lab["治疗方式"] = treatment
+    if surgery:
+        lab["第几次手术"] = surgery
+    if iv_chemo:
+        lab["是否静脉化疗"] = iv_chemo
+    if cc:
+        lab["CC评分"] = cc
+
+    tags = list(rx.pet_ct_phenotype_tags or [])
+    follow = _clean(row.followUpStatus)
+    if follow == "随访中":
+        if "随访队列" not in tags:
+            tags.append("随访队列")
+    elif follow and follow != "随访中":
+        tags = [t for t in tags if t != "随访队列"]
+
+    age = row.age if isinstance(row.age, int) and row.age > 0 else (p.age or 0)
+
+    new_p = p.model_copy(
+        update={
+            "name": name or p.name,
+            "gender": gender or p.gender,
+            "age": age,
+            "department": department or p.department,
+            "interview_doctor": physician or p.interview_doctor,
+            "exam_id": _clean(row.examId, p.exam_id or "") or p.exam_id,
+            "admission_id": _clean(row.admissionId, p.admission_id or "") or p.admission_id,
+        }
+    )
+    brief = chief or iv.brief_medical_history
+    if row.clinicalSummary and row.clinicalSummary not in ("—", "") and not chief:
+        # keep existing brief when clinicalSummary is a derived display string
+        brief = iv.brief_medical_history
+    new_iv = iv.model_copy(
+        update={
+            "clinical_diagnosis": diagnosis or iv.clinical_diagnosis,
+            "brief_medical_history": brief,
+        }
+    )
+    new_rx = rx.model_copy(
+        update={
+            "lab_snapshot": lab,
+            "pathology_grade": grade or rx.pathology_grade or "",
+            "pet_ct_phenotype_tags": tags,
+            "primary_disease_name": diagnosis or rx.primary_disease_name or "",
+        }
+    )
+    return record.model_copy(
+        update={
+            "patient_base_info": new_p,
+            "interview_info": new_iv,
+            "research_extensions": new_rx,
+        }
+    )
+
+
 def _has_pathology_imaging_artifact(rx) -> bool:
     for u in rx.document_uploads or []:
         if isinstance(u, dict) and u.get("source") == "pathology_imaging_api":

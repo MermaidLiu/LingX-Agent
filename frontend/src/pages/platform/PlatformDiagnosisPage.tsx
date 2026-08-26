@@ -550,7 +550,12 @@ function PathologyResultPanel({
   );
 }
 
-export default function PlatformDiagnosisPage() {
+type PlatformDiagnosisPageProps = {
+  /** 嵌在工作台「② 智能分析」TAB 内时为 true，隐藏返回工作台等重复导航 */
+  embedded?: boolean;
+};
+
+export default function PlatformDiagnosisPage({ embedded = false }: PlatformDiagnosisPageProps) {
   const { message } = App.useApp();
   const [jobState, setJobState] = useState<PathologyJobState>(() => getPathologyJobState());
   const [hydrating, setHydrating] = useState(true);
@@ -601,7 +606,8 @@ export default function PlatformDiagnosisPage() {
     try {
       let examId = result.exam_id;
       if (!savedToDb) {
-        const saved = await platformSavePathologyAnalysis(result, fileNames);
+        const clinical = buildRecordForCarePathway(result);
+        const saved = await platformSavePathologyAnalysis(result, fileNames, clinical);
         examId = saved.exam_id;
         markSaved(saved.exam_id);
         setSavedToDb(true);
@@ -625,7 +631,8 @@ export default function PlatformDiagnosisPage() {
     }
     setSaving(true);
     try {
-      const res = await platformSavePathologyAnalysis(result, fileNames);
+      const clinical = buildRecordForCarePathway(result);
+      const res = await platformSavePathologyAnalysis(result, fileNames, clinical);
       markSaved(res.exam_id);
       setSavedToDb(true);
       const updated = { ...result, exam_id: res.exam_id, saved: true };
@@ -750,21 +757,23 @@ export default function PlatformDiagnosisPage() {
   const showEmpty = !loading && !hydrating && !result && !hasPendingImagingFiles() && !hasSuccessfulPathologyResult();
 
   return (
-    <div className="pmp-section pmp-diagnosis-page">
+    <div className={`pmp-section pmp-diagnosis-page${embedded ? " pmp-diagnosis-page--embedded" : ""}`}>
       <div className="pmp-diagnosis-page-head">
         <div>
           <Title level={4} style={{ marginBottom: 8 }}>
-            <span className="pmp-section-num">2</span>
+            {!embedded ? <span className="pmp-section-num">2</span> : null}
             智能分析与诊断
           </Title>
           <Paragraph type="secondary" style={{ marginBottom: 0 }}>
-            DICOM 分割与 PCI 评分由 CT 合并接口返回；下方可查看标注切片、PCI 详情与治疗建议。
+            影像分割与 PCI 由 CT 合并接口返回；可选大模型，基于影像结果与工作台临床信息生成诊断解读与治疗草案。
           </Paragraph>
         </div>
         <Space wrap>
-          <Link to="/workflow">
-            <Button>返回影像输入</Button>
-          </Link>
+          {!embedded ? (
+            <Link to="/workflow">
+              <Button>返回影像输入</Button>
+            </Link>
+          ) : null}
           {result?.saved || savedToDb ? (
             <Link to="/db/patients">
               <Button>查看患者数据库</Button>
@@ -821,12 +830,20 @@ export default function PlatformDiagnosisPage() {
       ) : null}
 
       {showEmpty ? (
-        <Empty description="请先在「工作台」上传患者病例（DICOM 或 ZIP），再进入本页分析">
-          <Link to="/workflow">
-            <Button type="primary" icon={<UploadOutlined />}>
-              前往工作台上传
-            </Button>
-          </Link>
+        <Empty
+          description={
+            embedded
+              ? "请先回到「① 影像输入」上传 DICOM / ZIP，再点击「开始智能分析」"
+              : "请先在「工作台」上传患者病例（DICOM 或 ZIP），再进入本页分析"
+          }
+        >
+          {embedded ? null : (
+            <Link to="/workflow">
+              <Button type="primary" icon={<UploadOutlined />}>
+                前往工作台上传
+              </Button>
+            </Link>
+          )}
         </Empty>
       ) : null}
 

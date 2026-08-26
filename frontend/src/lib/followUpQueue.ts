@@ -1,4 +1,5 @@
 import type { PathologyAnalysisResult, PetCtInterviewRecord } from "../api/client";
+import { mapWorkflowRecordToTemplateRow, saveWorkflowClinicalBridgeEntry } from "./clinicalDataset/template";
 import { saveWorkflowCase } from "./workflowCase";
 
 const FOLLOWUP_KEY = "pmp_followup_queue";
@@ -74,6 +75,11 @@ export async function addToFollowUpQueue(
   );
   saveWorkflowCase(enriched);
   await persist(enriched);
+
+  // 工作台临床 → 科研 Excel 模板桥接，供随访→科研分析自动映射
+  const tpl = mapWorkflowRecordToTemplateRow(enriched);
+  saveWorkflowClinicalBridgeEntry(examId, tpl);
+  if (tpl.患者ID) saveWorkflowClinicalBridgeEntry(tpl.患者ID, tpl);
 
   const entry: FollowUpEntry = {
     exam_id: examId,

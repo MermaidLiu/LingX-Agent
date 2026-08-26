@@ -86,11 +86,17 @@ export function clearPendingCaseFiles() {
 
 export function hasPendingImagingFiles(): boolean {
   if (resolvedUpload) {
-    return resolvedUpload.hasDicom;
+    return resolvedUpload.hasDicom || resolvedUpload.hasPresegmentedNii;
   }
   return pendingFiles.some((f) => {
     const lower = f.name.toLowerCase();
-    return lower.endsWith(".dcm") || lower.endsWith(".dicom") || lower.endsWith(".zip");
+    return (
+      lower.endsWith(".dcm") ||
+      lower.endsWith(".dicom") ||
+      lower.endsWith(".zip") ||
+      lower.endsWith(".nii") ||
+      lower.endsWith(".nii.gz")
+    );
   });
 }
 

@@ -145,13 +145,31 @@ def is_imaging_grade_task(task_id: str) -> bool:
 
 
 def collect_dicom_files(file_items: list[tuple[str, bytes]] | None) -> list[tuple[str, bytes]]:
-    """Extract .dcm / .dicom from uploads and ZIP archives."""
+    """Extract .dcm / .dicom from uploads and ZIP archives.
+
+    Also accepts extension-less ZIP members that look like DICOM (DICM magic at offset 128),
+    which is common for PACS exports.
+    """
     if not file_items:
         return []
     out: list[tuple[str, bytes]] = []
-    for name, content in file_items:
+
+    def _looks_like_dicom(name: str, content: bytes) -> bool:
         suffix = Path(name).suffix.lower()
         if suffix in DICOM_SUFFIXES:
+            return True
+        if suffix in {".nii", ".gz", ".xlsx", ".xls", ".csv", ".json", ".pdf", ".png", ".jpg", ".jpeg", ".txt"}:
+            return False
+        if name.lower().endswith(".nii.gz"):
+            return False
+        # Part 10 DICOM: "DICM" at byte 128
+        if len(content) > 132 and content[128:132] == b"DICM":
+            return True
+        return False
+
+    for name, content in file_items:
+        suffix = Path(name).suffix.lower()
+        if suffix in DICOM_SUFFIXES or (suffix not in {".zip"} and _looks_like_dicom(name, content)):
             out.append((name, content))
         elif suffix == ".zip":
             try:
@@ -159,8 +177,9 @@ def collect_dicom_files(file_items: list[tuple[str, bytes]] | None) -> list[tupl
                     for member in zf.namelist():
                         if member.endswith("/"):
                             continue
-                        if Path(member).suffix.lower() in DICOM_SUFFIXES:
-                            out.append((member, zf.read(member)))
+                        data = zf.read(member)
+                        if _looks_like_dicom(member, data):
+                            out.append((member, data))
             except zipfile.BadZipFile:
                 continue
     # 去重：避免前端重复上传同一文件导致数量翻倍

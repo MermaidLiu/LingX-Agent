@@ -1,13 +1,16 @@
 import { platformPathologyGrade, type PathologyImagingGradeResult, type PciScoreResult } from "../api/platform";
 import {
+  ensureResolvedUpload,
   getPendingCaseFileNames,
   getPendingCaseFiles,
+  getResolvedUploadSync,
   hasPendingCaseFiles,
   hasPendingImagingFiles,
   pendingCaseFilesChanged,
   pendingCaseFilesFingerprint,
 } from "./platformCaseUpload";
-import { isPresegmentedResult } from "./presegmentedCase";
+import { buildPresegmentedPathologyResult, isPresegmentedResult } from "./presegmentedCase";
+import { shouldSkipCtApi } from "./resolveCaseUpload";
 import {
   getPathologyImagingOrNull,
   hydratePathologyImagingResult,
@@ -130,6 +133,44 @@ export async function startPathologyAnalysis(opts?: {
     }
   }
 
+  // Pre-segmented NIfTI only → skip classmate CT API, load local volume for viewer/radiomics
+  const resolved = (await ensureResolvedUpload()) ?? getResolvedUploadSync();
+  if (shouldSkipCtApi(resolved) && resolved?.niiFiles.length) {
+    running = true;
+    setJob({
+      phase: "running",
+      message: "检测到预勾画 NIfTI，跳过 CT 接口，加载本地体积…",
+      startedAt: new Date().toISOString(),
+      finishedAt: "",
+      fileNames: names,
+      error: null,
+    });
+    try {
+      const { result } = await buildPresegmentedPathologyResult(resolved.niiFiles[0], fingerprint);
+      setPathologyImagingResult(result, names, fingerprint);
+      setJob({
+        phase: "done",
+        message: result.message || "预勾画已加载",
+        finishedAt: new Date().toISOString(),
+        error: null,
+      });
+      const outcome = { result, fromCache: false, fileNames: names };
+      opts?.onComplete?.(outcome);
+      return outcome;
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : "预勾画 NIfTI 加载失败";
+      setJob({
+        phase: "error",
+        message: errMsg,
+        finishedAt: new Date().toISOString(),
+        error: errMsg,
+      });
+      return null;
+    } finally {
+      running = false;
+    }
+  }
+
   running = true;
 
   setJob({
@@ -158,20 +199,34 @@ export async function startPathologyAnalysis(opts?: {
         finishedAt: new Date().toISOString(),
         error: hydrated.message || "分析失败",
       });
+    } else if (hydrated.status === "skipped") {
+      setJob({
+        phase: "error",
+        message: hydrated.message || "未检测到 DICOM，未调用 CT 接口",
+        finishedAt: new Date().toISOString(),
+        error: hydrated.message || "未检测到 DICOM",
+      });
     } else {
       const pci = getPci(hydrated);
       const pciTotal = pci?.pci_score ?? (pci ? sumPciRegions(normalizePciRegions(pci)) : null);
       const fromCache = hydrated.message.includes("缓存") || Boolean(hydrated.raw?.cache_hit);
+      const hasSeg =
+        Boolean(hydrated.result_image_base64) ||
+        Boolean((hydrated.raw as { slice_manifest?: unknown } | undefined)?.slice_manifest);
       setJob({
         phase: "done",
         message:
           pciTotal != null
             ? fromCache
               ? `缓存命中 · PCI ${pciTotal}/36`
-              : `分析完成 · PCI ${pciTotal}/36`
+              : hasSeg
+                ? `分析完成 · PCI ${pciTotal}/36`
+                : `分析完成 · PCI ${pciTotal}/36（无分割图返回）`
             : fromCache
               ? "缓存命中"
-              : "分析完成",
+              : hasSeg
+                ? "分析完成"
+                : "分析完成（接口未返回分割图）",
         finishedAt: new Date().toISOString(),
         error: null,
       });

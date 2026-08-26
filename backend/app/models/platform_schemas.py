@@ -176,6 +176,14 @@ class PlatformChatAnalyzeResponse(BaseModel):
 class PathologySaveRequest(BaseModel):
     result: PathologyImagingGradeResult
     uploaded_file_names: list[str] = Field(default_factory=list)
+    record: PetCtInterviewRecord | None = None
+
+
+class PlatformPatientUpdateRequest(BaseModel):
+    """Partial patient-table edit payload (double-click cells → save)."""
+
+    examId: str = ""
+    patient: PlatformPatientRow
 
 
 class CarePathwayAnalyzeBody(BaseModel):

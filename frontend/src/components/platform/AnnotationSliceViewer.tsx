@@ -30,25 +30,40 @@ export function AnnotationSliceViewer({ result, fallbackImageBase64 = "" }: Prop
   const [pos, setPos] = useState(initialPos);
   const [imgError, setImgError] = useState(false);
   const [imgLoading, setImgLoading] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     setPos(initialPos);
   }, [initialPos, fingerprint]);
 
   const current = manifest[pos];
-  const canBrowse = manifest.length > 1 && Boolean(fingerprint);
-  const singleFallback = !canBrowse && hasAnnotatedImage(fallbackImageBase64 || result.result_image_base64);
+  const canBrowse = manifest.length >= 1 && Boolean(fingerprint);
+  const singleFallback =
+    !canBrowse && hasAnnotatedImage(fallbackImageBase64 || result.result_image_base64);
 
   const imageUrl = useMemo(() => {
     if (!canBrowse || !current) return "";
     return platformAnnotationSliceUrl(fingerprint, current.index);
   }, [canBrowse, current, fingerprint]);
 
+  const displayUrl = imageUrl ? (retryToken ? `${imageUrl}?t=${retryToken}` : imageUrl) : "";
+
   useEffect(() => {
     if (!imageUrl) return;
     setImgError(false);
     setImgLoading(true);
+    setRetryToken(0);
   }, [imageUrl]);
+
+  useEffect(() => {
+    if (!imgError || !canBrowse || !current || retryToken >= 12) return;
+    const timer = window.setTimeout(() => {
+      setImgError(false);
+      setImgLoading(true);
+      setRetryToken((t) => t + 1);
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [imgError, canBrowse, current, retryToken]);
 
   const goPrev = useCallback(() => {
     setPos((p) => Math.max(0, p - 1));
@@ -103,7 +118,7 @@ export function AnnotationSliceViewer({ result, fallbackImageBase64 = "" }: Prop
             <Empty description="切片加载中，后台正在写入缓存…" image={Empty.PRESENTED_IMAGE_SIMPLE} />
           ) : (
             <img
-              src={imageUrl}
+              src={displayUrl}
               alt={`标注切片 ${current?.filename || current?.index}`}
               onLoad={() => setImgLoading(false)}
               onError={() => {

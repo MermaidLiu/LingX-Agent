@@ -29,8 +29,8 @@ export type HomeModelTrendPoint = {
 
 export const HOME_WORKFLOW_STEPS: HomeWorkflowStep[] = [
   { key: "input", title: "影像输入", subtitle: "多模态影像数据输入", path: "/workflow" },
-  { key: "analysis", title: "智能分析", subtitle: "AI 智能识别量化分析", path: "/analysis" },
-  { key: "care", title: "方案推荐", subtitle: "辅助诊断治疗建议", path: "/analysis" },
+  { key: "analysis", title: "智能分析", subtitle: "AI 智能识别量化分析", path: "/workflow?step=diagnosis" },
+  { key: "care", title: "方案推荐", subtitle: "辅助诊断治疗建议", path: "/workflow?step=diagnosis" },
   { key: "model", title: "预测模型", subtitle: "模型训练持续学习", path: "/knowledge/data/imaging" },
   { key: "feedback", title: "结果反馈", subtitle: "效果评估反馈优化", path: "/db/follow-up" },
 ];

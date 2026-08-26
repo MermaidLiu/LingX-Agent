@@ -198,7 +198,16 @@ export default function MultimodalAgentWorkbench() {
     setLoadingPatients(true);
     try {
       const list = await fetchMergedPlatformPatients();
-      setPatients(list);
+      const ctx = loadResearchBatchContext();
+      if (ctx?.clinical.length) {
+        const ids = new Set(ctx.clinical.flatMap((p) => [p.id, p.examId || ""].filter(Boolean)));
+        const scoped = list.filter(
+          (p) => ids.has(p.id) || (p.examId && ids.has(p.examId)) || ids.has(p.admissionId),
+        );
+        setPatients(scoped.length ? scoped : list);
+      } else {
+        setPatients(list);
+      }
       setLinked(loadModuleResults());
 
       const imagingBatch = getResearchBatchPatients("imaging");

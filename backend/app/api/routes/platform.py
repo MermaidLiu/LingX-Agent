@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, UploadFile
@@ -30,6 +31,7 @@ from app.models.platform_schemas import (
     PlatformKnowledgeSearchResponse,
     PlatformPathologyRow,
     PlatformPatientRow,
+    PlatformPatientUpdateRequest,
     PlatformPptGenerateBody,
     PlatformPptGenerateResponse,
     PlatformPublicationTopicsResponse,
@@ -69,6 +71,7 @@ from app.services.pci_scoring_client import (
 )
 from app.services.pathology_slice_store import (
     build_slice_manifest,
+    first_annotated_slice_base64,
     get_slice_image_bytes,
     load_slice_manifest,
     save_slice_store,
@@ -346,7 +349,12 @@ async def platform_pathology_grade(
                 if manifest:
                     raw_payload["slice_manifest"] = manifest
                     raw_payload["slice_count"] = len(manifest)
-                    background_tasks.add_task(save_slice_store, fingerprint, api_payload)
+                    # Write PNGs before responding — frontend loads slices immediately after grade returns.
+                    await asyncio.to_thread(save_slice_store, fingerprint, api_payload)
+                    if not raw.get("result_image_base64"):
+                        preview_b64 = first_annotated_slice_base64(api_payload)
+                        if preview_b64:
+                            raw["result_image_base64"] = preview_b64
             elif not raw_payload.get("slice_manifest"):
                 disk_manifest = load_slice_manifest(fingerprint)
                 if disk_manifest:
@@ -532,11 +540,46 @@ async def platform_pathology_save(body: PathologySaveRequest, db: Session = Depe
         db,
         raw,
         uploaded_file_names=body.uploaded_file_names,
+        clinical_record=body.record,
     )
     if saved is None:
         raise HTTPException(status_code=400, detail="仅成功的分析结果可入库")
     patient = record_to_patient_row(saved)
     return PlatformSaveResponse(ok=True, patient=patient, exam_id=saved.patient_base_info.exam_id)
+
+
+@router.put("/patients/update", response_model=PlatformSaveResponse)
+def platform_patient_update(body: PlatformPatientUpdateRequest, db: Session = Depends(get_db)) -> PlatformSaveResponse:
+    """Update editable patient-db cells and persist back to the case record."""
+    from app.services.platform_adapters import apply_patient_row_to_record
+
+    exam_id = (body.examId or body.patient.examId or "").strip()
+    if not exam_id and body.patient.id:
+        # PMP-prefixed display ids still map to exam_id without prefix when stored that way
+        raw_id = body.patient.id
+        exam_id = raw_id[3:] if raw_id.upper().startswith("PMP") else raw_id
+    if not exam_id:
+        raise HTTPException(status_code=400, detail="examId 不能为空")
+
+    row = pet_ct_case.get_by_exam_id(db, exam_id)
+    if row is None:
+        # try with/without PMP prefix
+        alt = f"PMP{exam_id}" if not exam_id.upper().startswith("PMP") else exam_id[3:]
+        row = pet_ct_case.get_by_exam_id(db, alt)
+        if row is not None:
+            exam_id = alt
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"未找到病例：{exam_id}")
+
+    record = pet_ct_case.orm_to_record(row)
+    updated = apply_patient_row_to_record(record, body.patient)
+    if not updated.patient_base_info.exam_id:
+        updated = updated.model_copy(
+            update={"patient_base_info": updated.patient_base_info.model_copy(update={"exam_id": exam_id})}
+        )
+    pet_ct_case.upsert_case(db, updated)
+    patient = record_to_patient_row(updated)
+    return PlatformSaveResponse(ok=True, patient=patient, exam_id=updated.patient_base_info.exam_id)
 
 
 @router.post("/research/publication-topics", response_model=PlatformPublicationTopicsResponse)

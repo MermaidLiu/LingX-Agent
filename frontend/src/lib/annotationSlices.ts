@@ -31,6 +31,36 @@ export function platformAnnotationSliceUrl(fingerprint: string, index: number): 
   return `/api/v1/platform/pathology/slices/${encodeURIComponent(fingerprint)}/${index}`;
 }
 
+/** Fetch one annotated slice PNG as raw base64 (retries while backend writes slice store). */
+export async function fetchAnnotationSliceBase64(
+  fingerprint: string,
+  index: number,
+  retries = 8,
+): Promise<string> {
+  for (let attempt = 0; attempt < retries; attempt += 1) {
+    try {
+      const res = await fetch(platformAnnotationSliceUrl(fingerprint, index));
+      if (!res.ok) {
+        if (attempt < retries - 1) await new Promise((r) => window.setTimeout(r, 1500));
+        continue;
+      }
+      const blob = await res.blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(typeof reader.result === "string" ? reader.result : "");
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+      const base64 = dataUrl.split(",")[1]?.trim() || "";
+      if (base64.length > 80) return base64;
+    } catch {
+      /* retry */
+    }
+    if (attempt < retries - 1) await new Promise((r) => window.setTimeout(r, 1500));
+  }
+  return "";
+}
+
 export function findInitialSlicePosition(
   manifest: AnnotationSliceManifestItem[],
   raw?: Record<string, unknown>,

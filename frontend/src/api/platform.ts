@@ -329,7 +329,7 @@ export async function platformPathologyGrade(
 ) {
   const form = new FormData();
   files.forEach((f) => form.append("files", f));
-  form.append("returnBase64", String(opts?.returnBase64 ?? true));
+  form.append("return_base64", String(opts?.returnBase64 ?? true));
   form.append("save_to_db", String(opts?.saveToDb ?? false));
   form.append("save_annotation_dataset", String(opts?.saveAnnotationDataset ?? false));
   form.append("run_pci", String(opts?.runPci ?? true));
@@ -462,10 +462,23 @@ export async function platformListPathology(keyword = "") {
 export async function platformSavePathologyAnalysis(
   result: PathologyImagingGradeResult,
   uploadedFileNames: string[] = [],
+  record?: PetCtInterviewRecord | null,
 ) {
   const { data } = await api.post<{ ok: boolean; patient: PlatformPatient; exam_id: string }>(
     "/api/v1/platform/pathology/save",
-    { result, uploaded_file_names: uploadedFileNames },
+    {
+      result,
+      uploaded_file_names: uploadedFileNames,
+      ...(record ? { record } : {}),
+    },
+  );
+  return data;
+}
+
+export async function platformUpdatePatient(patient: PlatformPatient, examId?: string) {
+  const { data } = await api.put<{ ok: boolean; patient: PlatformPatient; exam_id: string }>(
+    "/api/v1/platform/patients/update",
+    { examId: examId || patient.examId || "", patient },
   );
   return data;
 }

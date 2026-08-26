@@ -141,8 +141,8 @@ export default function PlatformHomePage() {
           size="small"
           style={{ padding: 0 }}
           onClick={() => {
-            if (row.status === "分析中") nav("/analysis");
-            else if (row.status === "已完成") nav("/db/patients");
+            if (row.status === "分析中") nav("/workflow?step=diagnosis");
+            else if (row.status === "已完成") nav("/workflow?step=diagnosis");
             else nav("/workflow");
           }}
         >

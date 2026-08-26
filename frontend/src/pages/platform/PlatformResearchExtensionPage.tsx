@@ -10,7 +10,7 @@ import { Button, Col, Row, Space, Tag, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import ResearchBatchImportPanel from "../../components/platform/ResearchBatchImportPanel";
-import { loadResearchBatchContext } from "../../lib/researchBatchContext";
+import { hasResearchClinicalReady, loadResearchBatchContext } from "../../lib/researchBatchContext";
 import { FOLLOWUP_BATCH_IMPORTED_EVENT, loadFollowUpBatch, type FollowUpBatchState } from "../../lib/followUpBatchStore";
 
 const { Title, Paragraph } = Typography;
@@ -47,27 +47,34 @@ const MODULES = [
 
 export default function PlatformResearchExtensionPage() {
   const [batch, setBatch] = useState<FollowUpBatchState | null>(() => loadFollowUpBatch());
-  const [ready, setReady] = useState(
-    () =>
-      Boolean(loadFollowUpBatch()?.cases.length) ||
-      Boolean(loadResearchBatchContext()?.clinical.length),
-  );
+  const [researchCtx, setResearchCtx] = useState(() => loadResearchBatchContext());
+  const clinicalReady = hasResearchClinicalReady(researchCtx);
+  const [ready, setReady] = useState(() => hasResearchClinicalReady(loadResearchBatchContext()));
 
   useEffect(() => {
     function refresh() {
       const b = loadFollowUpBatch();
+      const ctx = loadResearchBatchContext();
       setBatch(b);
-      setReady(
-        Boolean(b?.cases.length) || Boolean(loadResearchBatchContext()?.clinical.length),
-      );
+      setResearchCtx(ctx);
+      setReady(hasResearchClinicalReady(ctx));
     }
     window.addEventListener(FOLLOWUP_BATCH_IMPORTED_EVENT, refresh);
     refresh();
     return () => window.removeEventListener(FOLLOWUP_BATCH_IMPORTED_EVENT, refresh);
   }, []);
 
-  const clinicalN = batch?.cases.length ?? loadResearchBatchContext()?.clinical.length ?? 0;
-  const imagingN = batch?.matchedCount ?? loadResearchBatchContext()?.imaging.length ?? 0;
+  // 优先展示「当前激活的勾选队列」，而不是随访整批导入数量
+  const clinicalN = researchCtx?.clinical.length ?? batch?.cases.length ?? 0;
+  const imagingN = researchCtx?.imaging.length ?? batch?.matchedCount ?? 0;
+  const selectionHint =
+    researchCtx?.clinicalSource === "workflow_mapped"
+      ? "工作台临床已映射为模板字段"
+      : researchCtx?.clinicalSource === "excel_upload"
+        ? "已上传临床 Excel 模板"
+        : researchCtx?.clinical.length && batch?.cases.length && researchCtx.clinical.length < batch.cases.length
+          ? `随访已勾选 ${researchCtx.clinical.length}/${batch.cases.length}`
+          : researchCtx?.label || "";
 
   return (
     <div className="pmp-section">
@@ -76,7 +83,7 @@ export default function PlatformResearchExtensionPage() {
         AI 多模态科研智能体
       </Title>
       <Paragraph type="secondary" style={{ marginBottom: 8 }}>
-        上传 ZIP + Excel 导入队列，或从患者数据库多选病例进入；导入后直接在下方选择分析模块。
+        从工作台经随访队列进入时，自动将患者与临床信息映射到科研 Excel 模板；否则须上传与模板一致的临床 Excel 后才能分析。
       </Paragraph>
       <Tag color="green" style={{ marginBottom: 16 }}>
         已连接：多模态科研数据库
@@ -86,16 +93,23 @@ export default function PlatformResearchExtensionPage() {
         variant="research"
         onImported={() => {
           setBatch(loadFollowUpBatch());
-          setReady(true);
+          const ctx = loadResearchBatchContext();
+          setResearchCtx(ctx);
+          setReady(hasResearchClinicalReady(ctx));
         }}
       />
 
-      {ready ? (
+      {ready && clinicalReady ? (
         <>
           {clinicalN > 0 ? (
-            <Space style={{ marginBottom: 12 }}>
+            <Space style={{ marginBottom: 12 }} wrap>
               <Tag color="blue">{clinicalN} 例临床</Tag>
               {imagingN > 0 ? <Tag color="cyan">{imagingN} 例预勾画影像</Tag> : null}
+              {selectionHint ? (
+                <Tag color="purple" style={{ maxWidth: 420, whiteSpace: "normal", height: "auto" }}>
+                  {selectionHint}
+                </Tag>
+              ) : null}
             </Space>
           ) : null}
           <div className="pmp-module-cards">
@@ -128,7 +142,9 @@ export default function PlatformResearchExtensionPage() {
         </>
       ) : (
         <Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 24 }}>
-          导入数据后，或从患者数据库多选病例后，将在此显示临床 / 影像 / 多模态三个分析模块。
+          {researchCtx?.clinical.length && researchCtx.clinicalSource === "none"
+            ? "已勾选病例，但尚无临床模板数据：请上传与「临床数据导入模板」一致的 Excel。"
+            : "请先完成临床数据准备（工作台映射或上传模板 Excel），再展开临床 / 影像 / 多模态分析模块。"}
         </Paragraph>
       )}
 

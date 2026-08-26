@@ -173,7 +173,7 @@ export function hasSuccessfulPathologyResult(): boolean {
   return Boolean(r && r.status === "ok");
 }
 
-/** Restore visualization image from IndexedDB when re-entering the analysis page. */
+/** Restore visualization image from IndexedDB or slice store when re-entering the analysis page. */
 export async function hydratePathologyImagingResult(
   result: PathologyImagingGradeResult | null,
 ): Promise<PathologyImagingGradeResult | null> {
@@ -192,6 +192,25 @@ export async function hydratePathologyImagingResult(
       return hydrated;
     }
   }
+
+  const raw = result.raw as Record<string, unknown> | undefined;
+  const manifest = Array.isArray(raw?.slice_manifest) ? raw.slice_manifest : [];
+  const fingerprint = String(raw?.fingerprint || session.uploadedFileFingerprint || "").trim();
+  if (manifest.length && fingerprint) {
+    const first = manifest[0] as { index?: number };
+    if (typeof first.index === "number") {
+      const { fetchAnnotationSliceBase64 } = await import("./annotationSlices");
+      const sliceB64 = await fetchAnnotationSliceBase64(fingerprint, first.index);
+      if (sliceB64) {
+        const hydrated = { ...result, result_image_base64: sliceB64 };
+        pathologyImagingFull = hydrated;
+        void cachePathologyImage(fingerprintImageKey(fingerprint), sliceB64);
+        if (result.exam_id) void cachePathologyImage(result.exam_id, sliceB64);
+        return hydrated;
+      }
+    }
+  }
+
   return result;
 }
 

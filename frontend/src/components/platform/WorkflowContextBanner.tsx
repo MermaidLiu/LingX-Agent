@@ -24,7 +24,7 @@ export default function WorkflowContextBanner({ compact = false }: Props) {
         description={
           <span>
             请先在 <Link to="/workflow">工作台</Link> 上传病例并完成{" "}
-            <Link to="/analysis">智能分析</Link>，此处将自动串联上传文件与诊断结果。
+            <Link to="/workflow?step=diagnosis">智能分析</Link>，此处将自动串联上传文件与诊断结果。
           </span>
         }
       />

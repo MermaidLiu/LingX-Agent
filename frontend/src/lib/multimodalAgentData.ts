@@ -49,12 +49,13 @@ export function computeMultimodalStats(
   patients: PlatformPatient[],
   batchCtx: ResearchBatchContext | null,
 ): MultimodalDataStats[] {
-  const total = patients.length || batchCtx?.clinical.length || 0;
+  const scoped = scopePatientsToBatch(patients, batchCtx);
+  const total = batchCtx?.clinical.length || scoped.length || 0;
   const imaging =
-    batchCtx?.imaging.length ?? patients.filter((p) => p.hasAnnotatedImage || (p.dicomCount ?? 0) > 0).length;
+    batchCtx?.imaging.length ?? scoped.filter((p) => p.hasAnnotatedImage || (p.dicomCount ?? 0) > 0).length;
   const clinical = batchCtx?.clinical.length ?? total;
-  const pathology = patients.filter((p) => p.gradeLabel === "高级别" || p.gradeLabel === "低级别").length;
-  const gene = patients.filter((p) => p.gene && p.gene !== "—").length;
+  const pathology = scoped.filter((p) => p.gradeLabel === "高级别" || p.gradeLabel === "低级别").length;
+  const gene = scoped.filter((p) => p.gene && p.gene !== "—").length;
 
   return [
     { label: "总病例", value: total ? String(total) : "—" },
@@ -65,16 +66,27 @@ export function computeMultimodalStats(
   ];
 }
 
+function scopePatientsToBatch(
+  patients: PlatformPatient[],
+  batchCtx: ResearchBatchContext | null,
+): PlatformPatient[] {
+  if (!batchCtx?.clinical.length) return patients;
+  const ids = new Set(batchCtx.clinical.flatMap((p) => [p.id, p.examId || ""].filter(Boolean)));
+  const hit = patients.filter((p) => ids.has(p.id) || (p.examId && ids.has(p.examId)) || ids.has(p.admissionId));
+  return hit.length ? hit : patients;
+}
+
 export function computeIntegrity(
   patients: PlatformPatient[],
   batchCtx: ResearchBatchContext | null,
 ): { label: string; pct: number }[] {
-  const total = Math.max(patients.length, batchCtx?.clinical.length ?? 0, 1);
+  const scoped = scopePatientsToBatch(patients, batchCtx);
+  const total = Math.max(batchCtx?.clinical.length ?? 0, scoped.length, 1);
   const imaging =
-    batchCtx?.imaging.length ?? patients.filter((p) => p.hasAnnotatedImage || (p.dicomCount ?? 0) > 0).length;
-  const clinical = batchCtx?.clinical.length ?? patients.length;
-  const pathology = patients.filter((p) => p.gradeLabel === "高级别" || p.gradeLabel === "低级别").length;
-  const gene = patients.filter((p) => p.gene && p.gene !== "—").length;
+    batchCtx?.imaging.length ?? scoped.filter((p) => p.hasAnnotatedImage || (p.dicomCount ?? 0) > 0).length;
+  const clinical = batchCtx?.clinical.length ?? scoped.length;
+  const pathology = scoped.filter((p) => p.gradeLabel === "高级别" || p.gradeLabel === "低级别").length;
+  const gene = scoped.filter((p) => p.gene && p.gene !== "—").length;
 
   return [
     { label: "影像", pct: total ? Math.round((imaging / total) * 1000) / 10 : 0 },

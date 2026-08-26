@@ -2,8 +2,7 @@ import { ExperimentOutlined, FileImageOutlined, LeftOutlined, PlusOutlined, Righ
 import { App, Button, Col, DatePicker, Form, Input, InputNumber, Row, Select, Space, Tag, Typography, Upload } from "antd";
 import type { UploadFile } from "antd/es/upload/interface";
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { LlmProviderSelect } from "../../components/platform/LlmProviderSelect";
+import { Link, useSearchParams } from "react-router-dom";
 import { MOCK_PATIENTS, WORKFLOW_STEPS } from "../../data/platformMock";
 import {
   getPendingCaseFileNames,
@@ -12,15 +11,28 @@ import {
   toNativeFiles,
 } from "../../lib/platformCaseUpload";
 import { getWorkflowCase, saveClinicalFields } from "../../lib/workflowCase";
+import { mapWorkflowRecordToTemplateRow, saveWorkflowClinicalBridgeEntry } from "../../lib/clinicalDataset/template";
+import PlatformDiagnosisPage from "./PlatformDiagnosisPage";
 
 const { Title, Paragraph, Text } = Typography;
 
 const ACCEPT = ".dcm,.dicom,.zip,.pdf,.doc,.docx,.json";
 
+function stepIndexFromQuery(step: string | null): number | null {
+  if (!step) return null;
+  if (step === "input" || step === "0") return 0;
+  if (step === "diagnosis" || step === "1" || step === "analysis") return 1;
+  if (step === "database" || step === "2") return 2;
+  if (step === "research" || step === "3") return 3;
+  const n = Number(step);
+  if (Number.isFinite(n) && n >= 0 && n < WORKFLOW_STEPS.length) return n;
+  return null;
+}
+
 export default function PlatformWorkflowPage() {
   const { message } = App.useApp();
-  const nav = useNavigate();
-  const [stepIndex, setStepIndex] = useState(0);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [stepIndex, setStepIndex] = useState(() => stepIndexFromQuery(searchParams.get("step")) ?? 0);
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
   const [clinicalForm] = Form.useForm();
   const patient = MOCK_PATIENTS[0];
@@ -41,6 +53,7 @@ export default function PlatformWorkflowPage() {
       cea: lab.CEA || "",
       ca125: lab.CA125 || "",
       ca19_9: lab["CA19-9"] || lab.CA199 || "",
+      rbc: lab.RBC || lab.rbc || "",
       treatmentMethod: lab["治疗方式"] || "",
       surgeryNumber: lab["第几次手术"] || "",
       ivChemotherapy: lab["是否静脉化疗"] || "",
@@ -52,11 +65,24 @@ export default function PlatformWorkflowPage() {
   const isFirst = stepIndex === 0;
   const isLast = stepIndex === WORKFLOW_STEPS.length - 1;
 
-  const goToStep = useCallback((index: number) => {
-    const next = Math.max(0, Math.min(WORKFLOW_STEPS.length - 1, index));
-    setStepIndex(next);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
+  const goToStep = useCallback(
+    (index: number) => {
+      const next = Math.max(0, Math.min(WORKFLOW_STEPS.length - 1, index));
+      setStepIndex(next);
+      const key = WORKFLOW_STEPS[next]?.key || "input";
+      setSearchParams(key === "input" ? {} : { step: key }, { replace: true });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    [setSearchParams],
+  );
+
+  useEffect(() => {
+    const fromQuery = stepIndexFromQuery(searchParams.get("step"));
+    if (fromQuery != null && fromQuery !== stepIndex) {
+      setStepIndex(fromQuery);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   function syncPendingFiles() {
     const files = toNativeFiles(uploadFiles);
@@ -87,23 +113,29 @@ export default function PlatformWorkflowPage() {
         CEA: v.cea,
         CA125: v.ca125,
         "CA19-9": v.ca19_9,
+        RBC: v.rbc,
       },
     });
+    const rec = getWorkflowCase();
+    const tpl = mapWorkflowRecordToTemplateRow(rec);
+    const id = tpl.患者ID || rec.patient_base_info.exam_id;
+    if (id) saveWorkflowClinicalBridgeEntry(id, tpl);
   }
 
+  /** 工作台主路径：保存临床 → 缓存影像 → 切到「② 智能分析」并自动调 CT 接口 */
   function goToAnalysis() {
     persistClinicalFields();
     const files = syncPendingFiles();
     if (!files.length) {
-      message.warning("请先上传本例 DICOM 或 ZIP 影像");
+      message.warning("请先上传本例 DICOM、ZIP 或预勾画 NIfTI");
       return;
     }
     if (!hasPendingImagingFiles()) {
-      message.warning("请上传 DICOM 或 ZIP 压缩包");
+      message.warning("请上传 DICOM / ZIP / .nii.gz 影像文件");
       return;
     }
-    message.success(`已加载 ${files.length} 个文件，正在前往智能分析…`);
-    nav("/analysis");
+    message.success(`已加载 ${files.length} 个文件，正在进入智能分析（CT 分割 + PCI）…`);
+    goToStep(1);
   }
 
   return (
@@ -215,6 +247,11 @@ export default function PlatformWorkflowPage() {
                           <Input placeholder="U/mL" />
                         </Form.Item>
                       </Col>
+                      <Col xs={8} sm={6}>
+                        <Form.Item name="rbc" label="RBC">
+                          <Input placeholder="×10¹²/L" />
+                        </Form.Item>
+                      </Col>
                       <Col xs={24} sm={8}>
                         <Form.Item name="treatmentMethod" label="治疗方式">
                           <Select
@@ -241,7 +278,15 @@ export default function PlatformWorkflowPage() {
                       </Col>
                       <Col xs={12} sm={4}>
                         <Form.Item name="ccScore" label="CC 评分">
-                          <Select allowClear options={[{ value: "CC-0" }, { value: "CC-1" }, { value: "CC-2" }]} />
+                          <Select
+                            allowClear
+                            options={[
+                              { value: "CC-0", label: "CC-0（无肉眼残留）" },
+                              { value: "CC-1", label: "CC-1（残留 < 2.5 mm）" },
+                              { value: "CC-2", label: "CC-2（残留 2.5 mm–2.5 cm）" },
+                              { value: "CC-3", label: "CC-3（残留 > 2.5 cm 或融合）" },
+                            ]}
+                          />
                         </Form.Item>
                       </Col>
                     </Row>
@@ -283,12 +328,6 @@ export default function PlatformWorkflowPage() {
                   {getPendingCaseFileNames().length > 0 ? (
                     <AlertLike text={`已缓存 ${getPendingCaseFileNames().length} 个文件，可直接开始智能分析`} />
                   ) : null}
-                  <div style={{ marginBottom: 12 }}>
-                    <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 6 }}>
-                      大模型（治疗草案润色 / 对话）
-                    </Text>
-                    <LlmProviderSelect size="middle" />
-                  </div>
                   <Button
                     type="primary"
                     size="large"
@@ -299,31 +338,16 @@ export default function PlatformWorkflowPage() {
                   >
                     开始智能分析
                   </Button>
-                  <Link to="/chat" style={{ display: "block", marginTop: 8 }}>
-                    <Button block type="link">
-                      或使用智能对话入口
-                    </Button>
-                  </Link>
+                  <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+                    将跳转到上方「② 智能分析」，调用 CT 接口返回分割图与 PCI 评分（不走大模型）。
+                  </Paragraph>
                 </Col>
               </Row>
             </div>
           </section>
         ) : null}
 
-        {activeStep.key === "diagnosis" ? (
-          <section className="pmp-section" style={{ background: "#f8fafc", borderRadius: 12 }}>
-            <Title level={4}>
-              <span className="pmp-section-num">2</span>
-              智能分析与诊断
-            </Title>
-            <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-              CT 接口返回分割勾画图与 PCI 评分；确认后可生成指南治疗建议并加入随访队列。
-            </Paragraph>
-            <Button type="primary" size="large" icon={<ExperimentOutlined />} onClick={goToAnalysis}>
-              进入智能分析
-            </Button>
-          </section>
-        ) : null}
+        {activeStep.key === "diagnosis" ? <PlatformDiagnosisPage embedded /> : null}
 
         {activeStep.key === "database" ? (
           <section className="pmp-section">

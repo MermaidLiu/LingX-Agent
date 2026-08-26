@@ -3,7 +3,6 @@ import {
   BarChartOutlined,
   CrownOutlined,
   DatabaseOutlined,
-  ExperimentOutlined,
   HomeOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -42,12 +41,11 @@ type MenuItem = {
   children?: MenuItem[];
 };
 
-/** 流程：首页 → 工作台 → 智能对话 → 智能分析 → 数据库 → 科研延伸 */
+/** 流程：首页 → 工作台（含智能分析 TAB）→ 智能对话 → 数据库 → 科研延伸 */
 const MENU: MenuItem[] = [
   { key: "/", icon: <HomeOutlined />, label: "首页", path: "/" },
   { key: "/workflow", icon: <ApartmentOutlined />, label: "工作台", path: "/workflow" },
   { key: "/chat", icon: <MessageOutlined />, label: "智能对话", path: "/chat" },
-  { key: "/analysis", icon: <ExperimentOutlined />, label: "智能分析", path: "/analysis" },
   {
     key: "db",
     icon: <DatabaseOutlined />,
@@ -75,7 +73,7 @@ function selectedKey(pathname: string): string {
   const hit = paths.find((p) => p === pathname || (p !== "/" && pathname.startsWith(p)));
   if (pathname.startsWith("/research")) return "/knowledge";
   if (pathname.startsWith("/knowledge")) return "/knowledge";
-  if (pathname.startsWith("/analysis")) return "/analysis";
+  if (pathname.startsWith("/analysis")) return "/workflow";
   return hit || (pathname === "/" ? "/" : "/workflow");
 }
 
@@ -111,7 +109,9 @@ export default function PlatformLayout() {
 
   const jobRunning = isPathologyJobRunning() || pathologyJob.phase === "running";
   const jobDoneAway =
-    pathologyJob.phase === "done" && !loc.pathname.startsWith("/analysis") && Boolean(pathologyJob.finishedAt);
+    pathologyJob.phase === "done" &&
+    !loc.pathname.startsWith("/workflow") &&
+    Boolean(pathologyJob.finishedAt);
 
   const menuItems = useMemo(
     () =>
@@ -145,6 +145,13 @@ export default function PlatformLayout() {
       "/analysis/diagnosis": "智能分析与诊断",
       "/settings": "系统监控与统计分析",
     };
+    if (loc.pathname.startsWith("/workflow")) {
+      const step = new URLSearchParams(loc.search).get("step");
+      if (step === "diagnosis" || step === "analysis") return "工作台 · 智能分析";
+      if (step === "database") return "工作台 · 方案推荐 / 入队";
+      if (step === "research") return "工作台 · 科研延伸";
+      return "PMP 智能平台 · 工作台";
+    }
     if (loc.pathname.startsWith("/research")) return "科研延伸";
     if (loc.pathname.startsWith("/db/clinical")) return "临床数据集";
     if (loc.pathname.startsWith("/knowledge/data/imaging")) return "影像数据智能分析";
@@ -156,7 +163,9 @@ export default function PlatformLayout() {
 
   const hideWorkflowBanner =
     loc.pathname.startsWith("/knowledge/data/multimodal") ||
-    loc.pathname.startsWith("/knowledge/data/imaging");
+    loc.pathname.startsWith("/knowledge/data/imaging") ||
+    (loc.pathname.startsWith("/workflow") &&
+      ["diagnosis", "analysis"].includes(new URLSearchParams(loc.search).get("step") || ""));
 
   return (
     <Layout className="pmp-layout">
@@ -265,8 +274,13 @@ export default function PlatformLayout() {
               description={
                 <span>
                   {pathologyJob.message ||
-                    "正在调用 CT 合并接口（分割 + PCI 报告），同学侧约 5 分钟；您可以自由浏览其他页面，完成后可在「智能分析」查看结果。"}
-                  <Button type="link" size="small" onClick={() => nav("/analysis")} style={{ padding: 0, marginLeft: 8 }}>
+                    "正在调用 CT 合并接口（分割 + PCI 报告），同学侧约 5 分钟；您可以自由浏览其他页面，完成后可在工作台「② 智能分析」查看结果。"}
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => nav("/workflow?step=diagnosis")}
+                    style={{ padding: 0, marginLeft: 8 }}
+                  >
                     查看进度
                   </Button>
                 </span>
@@ -283,7 +297,12 @@ export default function PlatformLayout() {
               description={
                 <span>
                   {pathologyJob.message}
-                  <Button type="link" size="small" onClick={() => nav("/analysis")} style={{ padding: 0, marginLeft: 8 }}>
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => nav("/workflow?step=diagnosis")}
+                    style={{ padding: 0, marginLeft: 8 }}
+                  >
                     查看结果
                   </Button>
                 </span>

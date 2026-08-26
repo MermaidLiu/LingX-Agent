@@ -64,6 +64,25 @@ def load_slice_manifest(fingerprint: str) -> list[dict[str, Any]]:
     return slices if isinstance(slices, list) else []
 
 
+def first_annotated_slice_base64(api_payload: dict[str, Any] | None) -> str:
+    """Representative annotated PNG (base64) for preview when top-level field is empty."""
+    if not isinstance(api_payload, dict):
+        return ""
+    manifest = build_slice_manifest(api_payload)
+    if not manifest:
+        return ""
+    results = get_ct_results(normalize_ct_api_payload(api_payload))
+    for entry in manifest:
+        idx = int(entry["index"])
+        if idx >= len(results) or not isinstance(results[idx], dict):
+            continue
+        item = results[idx]
+        result_b64 = item.get("resultBase64") or item.get("result_base64") or ""
+        if isinstance(result_b64, str) and len(result_b64.strip()) >= 80:
+            return result_b64.strip()
+    return ""
+
+
 def save_slice_store(fingerprint: str, api_payload: dict[str, Any]) -> dict[str, Any]:
     """Write annotated PNGs + manifest.json. Returns summary stats."""
     manifest = build_slice_manifest(api_payload)

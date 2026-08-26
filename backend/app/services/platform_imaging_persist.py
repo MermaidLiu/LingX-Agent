@@ -18,6 +18,7 @@ async def persist_pathology_imaging_result(
     imaging_result: dict[str, Any],
     file_items: list[tuple[str, bytes]] | None = None,
     uploaded_file_names: list[str] | None = None,
+    clinical_record: PetCtInterviewRecord | None = None,
 ) -> PetCtInterviewRecord | None:
     """Save imaging diagnosis analysis to pathology + imaging databases."""
     if imaging_result.get("status") != "ok":
@@ -26,7 +27,25 @@ async def persist_pathology_imaging_result(
     file_items = file_items or []
     record: PetCtInterviewRecord | None = None
     dicom_files = collect_dicom_files(file_items) if file_items else []
-    if dicom_files:
+
+    # Prefer workflow clinical fields (name / labs / diagnosis) when the UI sends them.
+    if clinical_record is not None:
+        record = clinical_record.model_copy(deep=True)
+        exam_hint = (
+            str(imaging_result.get("exam_id") or "").strip()
+            or (record.patient_base_info.exam_id or "").strip()
+            or f"IMG{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        )
+        if not record.patient_base_info.exam_id:
+            record = record.model_copy(
+                update={
+                    "patient_base_info": record.patient_base_info.model_copy(
+                        update={"exam_id": exam_hint}
+                    )
+                }
+            )
+
+    if record is None and dicom_files:
         first_name, first_content = dicom_files[0]
         parsed, _ = await ingest_upload_bytes(first_name, first_content)
         if parsed:

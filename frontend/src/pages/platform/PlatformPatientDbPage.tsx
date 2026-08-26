@@ -1,13 +1,19 @@
-import { DatabaseOutlined, DownOutlined, ExperimentOutlined, TeamOutlined } from "@ant-design/icons";
-import { App, Alert, Button, Dropdown, Input, Select, Space, Spin, Table, Tag, Typography } from "antd";
+import { DatabaseOutlined, DownOutlined, ExperimentOutlined, SaveOutlined, TeamOutlined } from "@ant-design/icons";
+import { App, Alert, Button, Dropdown, Input, InputNumber, Select, Space, Spin, Table, Tag, Typography } from "antd";
 import type { ColumnsType, TableRowSelection } from "antd/es/table/interface";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { type PlatformPatient } from "../../api/platform";
+import { platformUpdatePatient, type PlatformPatient } from "../../api/platform";
 import PatientImagingModal, { ImagingViewButton } from "../../components/platform/PatientImagingModal";
 import { saveBatchSelection, type BatchOperationIntent } from "../../lib/platformBatchSelection";
 import { activateResearchFromPatients } from "../../lib/researchBatchContext";
 import { fetchMergedPlatformPatients } from "../../lib/platformPatientList";
+import {
+  loadFollowUpBatch,
+  saveFollowUpBatch,
+  type FollowUpBatchCase,
+} from "../../lib/followUpBatchStore";
+import { loadPatients, savePatients } from "../../lib/platformPatients";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -17,6 +23,40 @@ const GRADE_FILTER_OPTIONS = [
   { value: "低级别", label: "低级别" },
   { value: "未确定", label: "未确定" },
 ];
+
+const GRADE_EDIT_OPTIONS = [
+  { value: "高级别", label: "高级别" },
+  { value: "低级别", label: "低级别" },
+  { value: "未确定", label: "未确定" },
+  { value: "—", label: "—" },
+];
+
+const CC_OPTIONS = [
+  { value: "CC-0", label: "CC-0" },
+  { value: "CC-1", label: "CC-1" },
+  { value: "CC-2", label: "CC-2" },
+  { value: "CC-3", label: "CC-3" },
+  { value: "—", label: "—" },
+];
+
+type EditableField =
+  | "id"
+  | "name"
+  | "gender"
+  | "age"
+  | "department"
+  | "diagnosis"
+  | "clinicalSummary"
+  | "gradeLabel"
+  | "treatmentMethod"
+  | "surgeryNumber"
+  | "ivChemotherapy"
+  | "pciScore"
+  | "ccScore"
+  | "followUpStatus"
+  | "enrolledAt";
+
+type EditingCell = { id: string; field: EditableField };
 
 function gradeTag(v: string) {
   if (v === "高级别") return <Tag color="red">{v}</Tag>;
@@ -29,6 +69,32 @@ function cell(v?: string | null) {
   return v && v !== "—" ? v : "—";
 }
 
+function patchFollowUpBatchCase(visitId: string, patient: PlatformPatient) {
+  const batch = loadFollowUpBatch();
+  if (!batch?.cases.length) return;
+  const nextCases: FollowUpBatchCase[] = batch.cases.map((c) => {
+    if (c.visitId !== visitId && c.visitId !== patient.examId && c.visitId !== patient.id) return c;
+    return {
+      ...c,
+      name: patient.name || c.name,
+      gender: patient.gender || c.gender,
+      age: patient.age ? String(patient.age) : c.age,
+      gradeLabel: patient.gradeLabel || c.gradeLabel,
+      pciScore: patient.pciScore ?? c.pciScore,
+      diagnosis: patient.diagnosis || c.diagnosis,
+      pathology: patient.pathologySummary || patient.clinicalSummary || c.pathology,
+      labs: {
+        ...c.labs,
+        ...(patient.ccScore && patient.ccScore !== "—" ? { CC评分: patient.ccScore } : {}),
+        ...(patient.treatmentMethod && patient.treatmentMethod !== "—"
+          ? { 治疗方式: patient.treatmentMethod }
+          : {}),
+      },
+    };
+  });
+  saveFollowUpBatch({ ...batch, cases: nextCases });
+}
+
 export default function PlatformPatientDbPage() {
   const { message } = App.useApp();
   const navigate = useNavigate();
@@ -37,8 +103,11 @@ export default function PlatformPatientDbPage() {
   const [followUpOnly, setFollowUpOnly] = useState(false);
   const [rows, setRows] = useState<PlatformPatient[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [viewPatient, setViewPatient] = useState<PlatformPatient | null>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
+  const [editing, setEditing] = useState<EditingCell | null>(null);
+  const [dirtyIds, setDirtyIds] = useState<Set<string>>(() => new Set());
 
   const fetchPatients = useCallback(async () => {
     setLoading(true);
@@ -49,6 +118,8 @@ export default function PlatformPatientDbPage() {
         followUp: followUpOnly,
       });
       setRows(data);
+      setDirtyIds(new Set());
+      setEditing(null);
     } catch {
       message.error("加载患者数据库失败");
       setRows([]);
@@ -83,6 +154,163 @@ export default function PlatformPatientDbPage() {
     columnWidth: 48,
     fixed: "left",
   };
+
+  function markDirty(id: string) {
+    setDirtyIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  }
+
+  function updateRow(id: string, patch: Partial<PlatformPatient>) {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    markDirty(id);
+  }
+
+  function startEdit(id: string, field: EditableField) {
+    setEditing({ id, field });
+  }
+
+  function stopEdit() {
+    setEditing(null);
+  }
+
+  function editableProps(id: string, field: EditableField) {
+    return {
+      onDoubleClick: () => startEdit(id, field),
+      style: { cursor: "text" } as const,
+      title: "双击编辑",
+    };
+  }
+
+  function renderEditableText(
+    record: PlatformPatient,
+    field: EditableField,
+    display: ReactNode,
+    opts?: { type?: "text" | "number" | "select"; options?: { value: string; label: string }[] },
+  ) {
+    const isEditing = editing?.id === record.id && editing.field === field;
+    if (!isEditing) {
+      return (
+        <span {...editableProps(record.id, field)}>
+          {display}
+        </span>
+      );
+    }
+    if (opts?.type === "number") {
+      return (
+        <InputNumber
+          size="small"
+          autoFocus
+          min={0}
+          max={150}
+          value={typeof record[field] === "number" ? (record[field] as number) : Number(record.age) || 0}
+          onChange={(v) => updateRow(record.id, { age: Number(v) || 0 })}
+          onBlur={stopEdit}
+          onPressEnter={stopEdit}
+          style={{ width: "100%" }}
+        />
+      );
+    }
+    if (opts?.type === "select" && opts.options) {
+      const raw = record[field];
+      const value = typeof raw === "string" || typeof raw === "number" ? String(raw ?? "—") : "—";
+      return (
+        <Select
+          size="small"
+          autoFocus
+          open
+          value={value}
+          options={opts.options}
+          onChange={(v) => {
+            updateRow(record.id, { [field]: v } as Partial<PlatformPatient>);
+            stopEdit();
+          }}
+          onBlur={stopEdit}
+          style={{ width: "100%" }}
+          popupMatchSelectWidth={false}
+        />
+      );
+    }
+    const rawVal = record[field];
+    const text =
+      field === "pciScore"
+        ? record.pciScore != null
+          ? String(record.pciScore)
+          : ""
+        : typeof rawVal === "string" || typeof rawVal === "number"
+          ? String(rawVal ?? "")
+          : "";
+    return (
+      <Input
+        size="small"
+        autoFocus
+        defaultValue={text === "—" ? "" : text}
+        onBlur={(e) => {
+          const v = e.target.value.trim();
+          if (field === "pciScore") {
+            const n = v === "" ? null : Number(v);
+            updateRow(record.id, { pciScore: Number.isFinite(n as number) ? (n as number) : null });
+          } else if (field === "age") {
+            updateRow(record.id, { age: Number(v) || 0 });
+          } else {
+            updateRow(record.id, { [field]: v || "—" } as Partial<PlatformPatient>);
+          }
+          stopEdit();
+        }}
+        onPressEnter={(e) => (e.target as HTMLInputElement).blur()}
+      />
+    );
+  }
+
+  async function saveEdits() {
+    if (!dirtyIds.size) {
+      message.info("没有需要保存的修改");
+      return;
+    }
+    setSaving(true);
+    const dirtyRows = rows.filter((r) => dirtyIds.has(r.id));
+    let ok = 0;
+    let localOnly = 0;
+    try {
+      for (const row of dirtyRows) {
+        const examId = row.examId || row.admissionId || row.id;
+        try {
+          await platformUpdatePatient(row, examId);
+          ok += 1;
+        } catch {
+          // Fall back: follow-up batch / local cache rows
+          patchFollowUpBatchCase(examId, row);
+          const local = loadPatients();
+          const idx = local.findIndex(
+            (p) => p.id === row.id || p.admissionId === examId || p.id === examId,
+          );
+          if (idx >= 0) {
+            local[idx] = { ...local[idx], ...row };
+            savePatients(local);
+          } else {
+            savePatients([...local, row]);
+          }
+          localOnly += 1;
+        }
+      }
+      setDirtyIds(new Set());
+      setEditing(null);
+      if (ok && localOnly) {
+        message.success(`已保存 ${ok} 例到数据库，${localOnly} 例写入本地/随访批次`);
+      } else if (ok) {
+        message.success(`已更新 ${ok} 例患者信息`);
+      } else {
+        message.success(`已保存 ${localOnly} 例到本地/随访批次`);
+      }
+      await fetchPatients();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function resolveBatchPatients(): PlatformPatient[] {
     if (selectedPatients.length) return selectedPatients;
@@ -144,17 +372,38 @@ export default function PlatformPatientDbPage() {
   }
 
   const columns: ColumnsType<PlatformPatient> = [
-    { title: "患者 ID", dataIndex: "id", width: 120, fixed: "left" },
-    { title: "姓名", dataIndex: "name", width: 80, fixed: "left" },
+    {
+      title: "患者 ID",
+      dataIndex: "id",
+      width: 120,
+      fixed: "left",
+      render: (v: string, r) => renderEditableText(r, "id", v),
+    },
+    {
+      title: "姓名",
+      dataIndex: "name",
+      width: 80,
+      fixed: "left",
+      render: (v: string, r) => renderEditableText(r, "name", v),
+    },
     {
       title: "基本信息",
-      width: 120,
+      width: 140,
       render: (_, r) => (
         <span>
-          {r.gender} · {r.age}岁
+          {renderEditableText(r, "gender", r.gender, {
+            type: "select",
+            options: [
+              { value: "男", label: "男" },
+              { value: "女", label: "女" },
+              { value: "—", label: "—" },
+            ],
+          })}
+          {" · "}
+          {renderEditableText(r, "age", `${r.age}岁`, { type: "number" })}
           <br />
           <Text type="secondary" style={{ fontSize: 11 }}>
-            {r.department}
+            {renderEditableText(r, "department", r.department)}
           </Text>
         </span>
       ),
@@ -165,10 +414,10 @@ export default function PlatformPatientDbPage() {
       width: 180,
       ellipsis: true,
       render: (v: string, r) => (
-        <span title={v}>
-          <div>{r.diagnosis}</div>
+        <span>
+          <div>{renderEditableText(r, "diagnosis", r.diagnosis)}</div>
           <Text type="secondary" style={{ fontSize: 11 }}>
-            {v !== "—" ? v : r.chiefComplaint}
+            {renderEditableText(r, "clinicalSummary", v !== "—" ? v : r.chiefComplaint)}
           </Text>
         </span>
       ),
@@ -188,40 +437,55 @@ export default function PlatformPatientDbPage() {
         </div>
       ),
       dataIndex: "gradeLabel",
-      width: 100,
-      render: (v: string) => gradeTag(v),
+      width: 110,
+      render: (v: string, r) =>
+        renderEditableText(r, "gradeLabel", gradeTag(v), { type: "select", options: GRADE_EDIT_OPTIONS }),
     },
     {
       title: "治疗方式",
       dataIndex: "treatmentMethod",
       width: 110,
       ellipsis: true,
-      render: (v: string) => cell(v),
+      render: (v: string, r) => renderEditableText(r, "treatmentMethod", cell(v)),
     },
     {
       title: "第几次手术",
       dataIndex: "surgeryNumber",
       width: 96,
-      render: (v: string) => cell(v),
+      render: (v: string, r) => renderEditableText(r, "surgeryNumber", cell(v)),
     },
     {
       title: "静脉化疗",
       dataIndex: "ivChemotherapy",
-      width: 88,
-      render: (v: string) =>
-        v === "是" ? <Tag color="orange">是</Tag> : v === "否" ? <Tag>否</Tag> : "—",
+      width: 96,
+      render: (v: string, r) =>
+        renderEditableText(
+          r,
+          "ivChemotherapy",
+          v === "是" ? <Tag color="orange">是</Tag> : v === "否" ? <Tag>否</Tag> : "—",
+          {
+            type: "select",
+            options: [
+              { value: "是", label: "是" },
+              { value: "否", label: "否" },
+              { value: "—", label: "—" },
+            ],
+          },
+        ),
     },
     {
       title: "PCI",
       dataIndex: "pciScore",
-      width: 72,
-      render: (v: number | null | undefined) => (v != null ? `${v}/36` : "—"),
+      width: 80,
+      render: (v: number | null | undefined, r) =>
+        renderEditableText(r, "pciScore", v != null ? `${v}/36` : "—"),
     },
     {
       title: "CC评分",
       dataIndex: "ccScore",
-      width: 80,
-      render: (v: string) => cell(v),
+      width: 88,
+      render: (v: string, r) =>
+        renderEditableText(r, "ccScore", cell(v), { type: "select", options: CC_OPTIONS }),
     },
     {
       title: "影像",
@@ -245,10 +509,27 @@ export default function PlatformPatientDbPage() {
     {
       title: "随访",
       dataIndex: "followUpStatus",
-      width: 80,
-      render: (v: string) => (v === "随访中" ? <Tag color="blue">{v}</Tag> : v || "—"),
+      width: 96,
+      render: (v: string, r) =>
+        renderEditableText(
+          r,
+          "followUpStatus",
+          v === "随访中" ? <Tag color="blue">{v}</Tag> : v || "—",
+          {
+            type: "select",
+            options: [
+              { value: "随访中", label: "随访中" },
+              { value: "—", label: "—" },
+            ],
+          },
+        ),
     },
-    { title: "入库", dataIndex: "enrolledAt", width: 96 },
+    {
+      title: "入库",
+      dataIndex: "enrolledAt",
+      width: 110,
+      render: (v: string, r) => renderEditableText(r, "enrolledAt", v),
+    },
   ];
 
   return (
@@ -260,7 +541,7 @@ export default function PlatformPatientDbPage() {
             患者数据库
           </Title>
           <Paragraph type="secondary" style={{ marginBottom: 0, marginTop: 8, maxWidth: 720 }}>
-            统一病例表：含临床、病理分级、治疗/手术、PCI·CC 评分与影像查看。流程：工作台录入 → 智能分析 →
+            统一病例表：双击单元格可编辑，点「保存修改」写回列表。流程：工作台录入 → 智能分析 →
             随访入队 → <Link to="/knowledge">科研延伸</Link>。
           </Paragraph>
         </div>
@@ -279,7 +560,7 @@ export default function PlatformPatientDbPage() {
         showIcon
         style={{ marginBottom: 16 }}
         message="Excel 式病例总表"
-        description="点击「病理分级」列头下拉筛选；「影像」列可查看 DICOM 与 AI 分割图。"
+        description="双击任意单元格修改；「病理分级」列头可筛选；「影像」列可查看 DICOM 与 AI 分割图。"
       />
 
       <div className="pmp-card" style={{ padding: 16, marginBottom: 16 }}>
@@ -325,6 +606,15 @@ export default function PlatformPatientDbPage() {
               { value: "follow", label: "仅随访队列" },
             ]}
           />
+          <Button
+            type="primary"
+            icon={<SaveOutlined />}
+            loading={saving}
+            disabled={!dirtyIds.size}
+            onClick={() => void saveEdits()}
+          >
+            保存修改{dirtyIds.size ? `（${dirtyIds.size}）` : ""}
+          </Button>
           <Button icon={<DatabaseOutlined />} onClick={exportSelectedRows}>
             批量导出
           </Button>

@@ -8,7 +8,6 @@ import AccountLoginPage from "./pages/platform/AccountLoginPage";
 import PlatformChatPage from "./pages/platform/PlatformChatPage";
 import PlatformHomePage from "./pages/platform/PlatformHomePage";
 import PlatformClinicalAnalysisPage from "./pages/platform/PlatformClinicalAnalysisPage";
-import PlatformDiagnosisPage from "./pages/platform/PlatformDiagnosisPage";
 import PlatformImagingAnalysisPage from "./pages/platform/PlatformImagingAnalysisPage";
 import PlatformKnowledgeLibraryPage from "./pages/platform/PlatformKnowledgeLibraryPage";
 import PlatformMultimodalAnalysisPage from "./pages/platform/PlatformMultimodalAnalysisPage";
@@ -49,10 +48,10 @@ export default function App() {
           <Route path="db/follow-up" element={<PlatformFollowUpPage />} />
           <Route path="db/genetics" element={<Navigate to="/db/patients" replace />} />
           <Route path="db/literature" element={<Navigate to="/knowledge/library" replace />} />
-          <Route path="analysis" element={<PlatformDiagnosisPage />} />
-          <Route path="analysis/diagnosis" element={<PlatformDiagnosisPage />} />
-          <Route path="analysis/treatment" element={<Navigate to="/analysis" replace />} />
-          <Route path="analysis/prognosis" element={<Navigate to="/analysis" replace />} />
+          <Route path="analysis" element={<Navigate to="/workflow?step=diagnosis" replace />} />
+          <Route path="analysis/diagnosis" element={<Navigate to="/workflow?step=diagnosis" replace />} />
+          <Route path="analysis/treatment" element={<Navigate to="/workflow?step=diagnosis" replace />} />
+          <Route path="analysis/prognosis" element={<Navigate to="/workflow?step=diagnosis" replace />} />
           <Route path="analysis/cohort" element={<Navigate to="/db/patients" replace />} />
           <Route path="knowledge" element={<PlatformResearchExtensionPage />} />
           <Route path="knowledge/data" element={<PlatformResearchDataHubPage />} />
